@@ -43,7 +43,8 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
-    session_id: str = "default"
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    session_id: str = Field(default="default", min_length=1, max_length=128)
 
 
 class ChatResponse(BaseModel):
@@ -117,7 +118,7 @@ def refresh_web_cache() -> dict:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     result = orchestrator.chat(req.session_id, req.message)
-    db.log_conversation(req.session_id, req.message, result)
+    db.log_conversation(req.user_id, req.session_id, req.message, result)
     return ChatResponse(**result)
 
 

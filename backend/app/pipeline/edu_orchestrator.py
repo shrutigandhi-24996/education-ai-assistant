@@ -191,6 +191,7 @@ class EduOrchestrator:
                 "intent": "off_topic",
                 "intents": analysis.get("intents"),
                 "role": analysis.get("user_role"),
+                "context": {},
                 "source": "domain_guard",
             }
 
@@ -201,6 +202,7 @@ class EduOrchestrator:
                 "intent": "clarification",
                 "intents": analysis.get("intents"),
                 "role": analysis.get("user_role"),
+                "context": self._pragmatic_context(analysis, analysis.get("intents") or [], ""),
                 "needs_clarification": True,
                 "source": "clarification",
             }
@@ -225,6 +227,7 @@ class EduOrchestrator:
             session.history = session.history[-max_msgs:]
 
         intents = analysis.get("intents") or []
+        context = self._pragmatic_context(analysis, intents, institution)
         return {
             "reply": reply,
             "intent": intents[0] if intents else "general_query",
@@ -232,7 +235,25 @@ class EduOrchestrator:
             "is_multi_intent": analysis.get("is_multi_intent", len(intents) > 1),
             "role": analysis.get("user_role"),
             "institution": institution or None,
+            "context": context,
             "confidence": 1.0,
             "sources": sources or None,
             "source": "llm+web" if sources else "llm",
         }
+
+    def _pragmatic_context(
+        self, analysis: dict[str, Any], intents: list[str], institution: str
+    ) -> dict[str, Any]:
+        """Entity/context JSON saved to the database (like Course / Institution in research UI)."""
+        ctx: dict[str, Any] = {}
+        if institution:
+            ctx["Institution"] = [institution]
+        topic = (analysis.get("topic") or "").strip()
+        if topic:
+            ctx["Topic"] = [topic]
+        role = analysis.get("user_role")
+        if role and role != "other":
+            ctx["Role"] = [role.title()]
+        if intents:
+            ctx["IntentLabels"] = intents
+        return ctx

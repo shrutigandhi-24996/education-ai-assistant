@@ -3,7 +3,29 @@ const form = document.getElementById("form");
 const input = document.getElementById("input");
 const statusEl = document.getElementById("status");
 const suggestionsEl = document.getElementById("suggestions");
-const sessionId = crypto.randomUUID();
+const USER_KEY = "edu_assistant_user_id";
+const SESSION_KEY = "edu_assistant_session_id";
+
+function getUserId() {
+  let id = localStorage.getItem(USER_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(USER_KEY, id);
+  }
+  return id;
+}
+
+function getSessionId() {
+  let id = sessionStorage.getItem(SESSION_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(SESSION_KEY, id);
+  }
+  return id;
+}
+
+const userId = getUserId();
+const sessionId = getSessionId();
 
 const SUGGESTIONS = [
   "Admission process & fees at Stanford University",
@@ -132,7 +154,7 @@ form.addEventListener("submit", async (e) => {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, session_id: sessionId }),
+      body: JSON.stringify({ message: text, user_id: userId, session_id: sessionId }),
     });
     const data = await res.json();
     typing.remove();

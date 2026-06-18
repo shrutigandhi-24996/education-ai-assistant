@@ -20,8 +20,11 @@
     td.q { max-width: 240px; }
     td.a { max-width: 360px; color: #374151; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600; }
-    .pill.yes { background: #ede9fe; color: #6d28d9; }
+    .pill.yes { background: #ede9fe; color: #6d28d9; margin: 2px 2px 2px 0; }
     .pill.no { background: #f1f5f9; color: #475569; }
+    .pill.scenario { background: #fef3c7; color: #92400e; font-size: .68rem; }
+    .turn { color: var(--muted); font-size: .72rem; }
+    .multi { max-width: 200px; }
     .intent { background: #ecfeff; color: #0e7490; }
     .ctx { font-family: ui-monospace, monospace; font-size: .72rem; color: #6b7280; max-width: 260px; white-space: pre-wrap; }
     .row-new td { animation: flash 1.2s ease-out; }
@@ -35,7 +38,7 @@
       <span class="logo" aria-hidden="true">🗄️</span>
       <div>
         <h1>Conversation Database — Live</h1>
-        <p class="subtitle">Every student query is logged here in real time: user, question, intent, multi-intent, context and answer.</p>
+        <p class="subtitle">Every student query is logged in real time with separate <strong>user ID</strong> and <strong>session ID</strong>, intent, multi-intent list, pragmatic context, and scenario (S1–S3 from your research diagrams).</p>
       </div>
     </header>
 
@@ -49,8 +52,8 @@
       <table>
         <thead>
           <tr>
-            <th>#</th><th>Time (UTC)</th><th>User ID</th><th>Question</th>
-            <th>Intent</th><th>Multi-intent</th><th>Context</th><th>Answer</th><th>Sources</th>
+            <th>#</th><th>Time (UTC)</th><th>User ID</th><th>Session</th><th>Scenario</th>
+            <th>Question</th><th>Intent</th><th>Multi-intent</th><th>Context</th><th>Answer</th><th>Sources</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
