@@ -119,19 +119,40 @@ class EduOrchestrator:
             w in low for w in _FACTUAL_WORDS
         )
 
-    def _build_queries(self, text: str, analysis: dict[str, Any]) -> list[str]:
+    def _build_queries(
+        self, text: str, analysis: dict[str, Any], institution: str = ""
+    ) -> list[str]:
         queries: list[str] = []
-        # The LLM's own suggestions first (often well-scoped).
+        # When a specific institution is named, probe its official website first.
+        if institution:
+            queries.append(f"{institution} official website")
+            topic = (analysis.get("topic") or "").strip()
+            queries.append(f"{institution} {topic}".strip() if topic else institution)
+        # The LLM's own suggestions next (often well-scoped).
         for q in analysis.get("search_queries") or []:
             if q and q not in queries:
                 queries.append(q)
-        # Always include the raw question and an official-website probe.
+        # Always include the raw question and a generic official-website probe.
         if text not in queries:
-            queries.insert(0, text)
+            queries.append(text)
         official_probe = f"{text} official website"
-        if official_probe not in queries:
+        if not institution and official_probe not in queries:
             queries.append(official_probe)
         return queries[: settings.edu_search_max_queries + 1]
+
+    def _ensure_links(self, reply: str, sources: list[str]) -> str:
+        """Guarantee the answer carries at least one valid link when we have sources."""
+        if not sources:
+            return reply
+        if re.search(r"https?://", reply):
+            return reply  # model already cited links
+        official = [u for u in sources if self._is_official(u)]
+        lines = ["", "**Sources / official links:**"]
+        ordered = (official or []) + [u for u in sources if u not in official]
+        for u in ordered[:5]:
+            tag = " (official)" if self._is_official(u) else ""
+            lines.append(f"- {u}{tag}")
+        return reply + "\n" + "\n".join(lines)
 
     def _gather_web_context(self, queries: list[str]) -> tuple[str, list[str]]:
         blocks: list[str] = []
@@ -187,13 +208,15 @@ class EduOrchestrator:
         # Deterministically force a live search for any institution or factual
         # query (so worldwide colleges/universities/schools always get real,
         # source-cited links, including official websites).
-        force_web = self._needs_facts(text)
+        institution = (analysis.get("institution") or "").strip()
+        force_web = self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
         if force_web or analysis.get("needs_web_search"):
-            queries = self._build_queries(text, analysis)
+            queries = self._build_queries(text, analysis, institution)
             web_context, sources = self._gather_web_context(queries)
 
         reply = self.llm.generate(text, analysis, web_context, session.history)
+        reply = self._ensure_links(reply, sources)
 
         session.history.append({"role": "user", "content": text})
         session.history.append({"role": "assistant", "content": reply})
@@ -208,6 +231,7 @@ class EduOrchestrator:
             "intents": intents,
             "is_multi_intent": analysis.get("is_multi_intent", len(intents) > 1),
             "role": analysis.get("user_role"),
+            "institution": institution or None,
             "confidence": 1.0,
             "sources": sources or None,
             "source": "llm+web" if sources else "llm",

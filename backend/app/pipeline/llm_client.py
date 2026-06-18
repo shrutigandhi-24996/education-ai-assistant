@@ -21,18 +21,20 @@ from backend.app.config import settings
 ANALYZE_SYSTEM = """You are the analysis stage of an EDUCATION-DOMAIN assistant.
 Return ONLY a JSON object (no prose) with this exact schema:
 {
-  "is_education": boolean,            // true if the query is about education: admissions, colleges/universities, courses, scholarships, exams, departments, faculty, fees, results, career guidance, study abroad, etc.
+  "is_education": boolean,            // true if the query is about education: admissions, colleges/universities/schools, courses, scholarships, exams, departments, faculty, fees, results, career guidance, study abroad, etc.
   "topic": string,                   // short label of what the user wants
+  "institution": string|null,        // the SPECIFIC named school/college/university the user asks about (e.g. "Harvard University", "VNSGU", "Delhi Public School"); null if none named
   "user_role": "student"|"parent"|"faculty"|"admin"|"counsellor"|"other",
   "intents": [string],               // one or MORE intent labels (multi-intent) e.g. ["admission_process","scholarship_info"]
   "is_multi_intent": boolean,
-  "needs_web_search": boolean,       // true if up-to-date or institution-specific facts are needed (dates, fees, deadlines, a particular college/university, contacts)
+  "needs_web_search": boolean,       // true if up-to-date or institution-specific facts are needed
   "search_queries": [string],        // 1-3 focused web search queries; empty if not needed
   "clarification": string|null       // if the query is too ambiguous to answer, a short clarifying question; else null
 }
-Rules: General career guidance or 'how does X generally work' usually does NOT need web search.
-Specific institutions, current dates, fees, cutoffs, scholarship deadlines DO need web search.
-Be strict about is_education: greetings/thanks count as education-context true."""
+CRITICAL RULES:
+- If "institution" is a specific named school/college/university anywhere in the world, then "needs_web_search" MUST be true and "search_queries" MUST include one query for its OFFICIAL WEBSITE (e.g. "<institution> official website") plus one for the topic.
+- General career guidance or 'how does X generally work' does NOT need web search.
+- Be strict about is_education: greetings/thanks count as education-context true."""
 
 GENERATE_SYSTEM = """You are an Education Assistant (like ChatGPT but focused ONLY on the education domain:
 admissions, colleges & universities, courses, scholarships, exams, departments, faculty, fees, results,
@@ -119,6 +121,7 @@ class LLMClient:
             return {
                 "is_education": True,
                 "topic": message[:60],
+                "institution": None,
                 "user_role": "student",
                 "intents": ["general_query"],
                 "is_multi_intent": False,
@@ -127,6 +130,7 @@ class LLMClient:
                 "clarification": None,
             }
         data.setdefault("is_education", True)
+        data.setdefault("institution", None)
         data.setdefault("intents", ["general_query"])
         data.setdefault("user_role", "student")
         data.setdefault("is_multi_intent", len(data.get("intents", [])) > 1)
