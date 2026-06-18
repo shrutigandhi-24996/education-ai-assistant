@@ -83,6 +83,74 @@ body {
 .bubble h4 { margin: 10px 0 4px; font-size: 0.95rem; }
 .bubble ul { margin: 8px 0 8px 1.2rem; }
 
+/* Suggested questions */
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.suggestions .chip {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.suggestions .chip:hover { background: #eef2ff; border-color: #c7d2fe; }
+
+/* Source chips under a bot reply */
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.sources .src-label {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.sources a.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  color: #374151;
+  background: #fafafa;
+  max-width: 100%;
+}
+.sources a.src:hover { background: #f0f0f0; }
+.sources a.src.official {
+  border-color: #16a34a;
+  background: #f0fdf4;
+  color: #15803d;
+  font-weight: 600;
+}
+
+/* Typing / searching indicator */
+.typing { color: var(--muted); font-style: italic; }
+.typing .dots::after {
+  content: "";
+  animation: dots 1.2s steps(4, end) infinite;
+}
+@keyframes dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+}
+
 .composer {
   display: flex;
   gap: 8px;

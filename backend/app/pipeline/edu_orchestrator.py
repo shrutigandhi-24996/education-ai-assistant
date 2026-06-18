@@ -11,12 +11,68 @@ career guidance, etc.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.app.config import settings
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.web_search import search_with_grounding
+
+# Any of these signals means the answer needs LIVE, source-cited facts
+# (a specific institution anywhere in the world, or a factual lookup).
+_INSTITUTION_WORDS = (
+    "university",
+    "college",
+    "school",
+    "institute",
+    "institution",
+    "campus",
+    "polytechnic",
+    "academy",
+    "vidyalaya",
+    "vishwavidyalaya",
+    "iit",
+    "nit",
+    "iiit",
+    "iim",
+    "aiims",
+    "vnsgu",
+)
+_FACTUAL_WORDS = (
+    "admission",
+    "apply",
+    "eligibility",
+    "fee",
+    "fees",
+    "tuition",
+    "deadline",
+    "last date",
+    "cutoff",
+    "cut off",
+    "scholarship",
+    "ranking",
+    "rank",
+    "placement",
+    "course",
+    "courses",
+    "program",
+    "programme",
+    "department",
+    "faculty",
+    "contact",
+    "website",
+    "address",
+    "result",
+    "exam",
+    "syllabus",
+)
+
+# Official / authoritative domains to surface first.
+_OFFICIAL_DOMAIN = re.compile(
+    r"(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3})$"
+)
 
 OFF_TOPIC_REPLY = (
     "I'm an **Education assistant** — I help with admissions, colleges & universities, "
@@ -49,21 +105,54 @@ class EduOrchestrator:
             self.sessions[session_id] = EduSession()
         return self.sessions[session_id]
 
+    @staticmethod
+    def _is_official(url: str) -> bool:
+        try:
+            host = urlparse(url).netloc.lower().split(":")[0]
+        except Exception:
+            return False
+        return bool(_OFFICIAL_DOMAIN.search(host))
+
+    def _needs_facts(self, text: str) -> bool:
+        low = text.lower()
+        return any(w in low for w in _INSTITUTION_WORDS) or any(
+            w in low for w in _FACTUAL_WORDS
+        )
+
+    def _build_queries(self, text: str, analysis: dict[str, Any]) -> list[str]:
+        queries: list[str] = []
+        # The LLM's own suggestions first (often well-scoped).
+        for q in analysis.get("search_queries") or []:
+            if q and q not in queries:
+                queries.append(q)
+        # Always include the raw question and an official-website probe.
+        if text not in queries:
+            queries.insert(0, text)
+        official_probe = f"{text} official website"
+        if official_probe not in queries:
+            queries.append(official_probe)
+        return queries[: settings.edu_search_max_queries + 1]
+
     def _gather_web_context(self, queries: list[str]) -> tuple[str, list[str]]:
         blocks: list[str] = []
-        sources: list[str] = []
-        for q in queries[: settings.edu_search_max_queries]:
+        official: list[str] = []
+        others: list[str] = []
+        seen: set[str] = set()
+        for q in queries:
             payload = search_with_grounding(q)
             for r in (payload.get("results") or [])[:4]:
                 url = r.get("url")
                 body = (r.get("extract") or r.get("snippet") or "").strip()
-                if not url or not body:
+                if not url or url in seen:
                     continue
-                if len(body) > 700:
-                    body = body[:700].rsplit(" ", 1)[0] + "…"
-                blocks.append(f"[{r.get('title') or url}]\n{body}\nSource: {url}")
-                if url not in sources:
-                    sources.append(url)
+                seen.add(url)
+                tag = "OFFICIAL" if self._is_official(url) else "web"
+                if body:
+                    snippet = body if len(body) <= 700 else body[:700].rsplit(" ", 1)[0] + "…"
+                    blocks.append(f"[{tag}] {r.get('title') or url}\n{snippet}\nSource: {url}")
+                (official if tag == "OFFICIAL" else others).append(url)
+        # Official links first so the model and the UI surface them prominently.
+        sources = official + others
         return "\n\n---\n\n".join(blocks), sources
 
     def chat(self, session_id: str, message: str) -> dict[str, Any]:
@@ -95,9 +184,14 @@ class EduOrchestrator:
                 "source": "clarification",
             }
 
+        # Deterministically force a live search for any institution or factual
+        # query (so worldwide colleges/universities/schools always get real,
+        # source-cited links, including official websites).
+        force_web = self._needs_facts(text)
         web_context, sources = "", []
-        if analysis.get("needs_web_search") and analysis.get("search_queries"):
-            web_context, sources = self._gather_web_context(analysis["search_queries"])
+        if force_web or analysis.get("needs_web_search"):
+            queries = self._build_queries(text, analysis)
+            web_context, sources = self._gather_web_context(queries)
 
         reply = self.llm.generate(text, analysis, web_context, session.history)
 

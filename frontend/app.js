@@ -2,7 +2,17 @@ const chatEl = document.getElementById("chat");
 const form = document.getElementById("form");
 const input = document.getElementById("input");
 const statusEl = document.getElementById("status");
+const suggestionsEl = document.getElementById("suggestions");
 const sessionId = crypto.randomUUID();
+
+const SUGGESTIONS = [
+  "Admission process & fees at Stanford University",
+  "Scholarships for international students in Canada",
+  "What is VNSGU's admission process for 2026?",
+  "How do I become a data scientist after BSc IT?",
+  "Top universities for an MBA in the UK",
+  "MIT computer science department and official website",
+];
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -21,7 +31,15 @@ function formatMarkdown(text) {
   return html;
 }
 
-function addMessage(role, text) {
+function hostOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
+function isOfficial(url) {
+  return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3})$/.test(hostOf(url));
+}
+
+function addMessage(role, text, sources) {
   const row = document.createElement("div");
   row.className = "message";
   const avatar = document.createElement("div");
@@ -31,6 +49,24 @@ function addMessage(role, text) {
   bubble.className = "bubble";
   if (role === "bot") {
     bubble.innerHTML = formatMarkdown(text);
+    if (sources && sources.length) {
+      const box = document.createElement("div");
+      box.className = "sources";
+      const label = document.createElement("span");
+      label.className = "src-label";
+      label.textContent = "Sources (verify on official sites):";
+      box.appendChild(label);
+      sources.slice(0, 6).forEach((url) => {
+        const a = document.createElement("a");
+        a.className = "src" + (isOfficial(url) ? " official" : "");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = (isOfficial(url) ? "🏛️ " : "🔗 ") + hostOf(url);
+        box.appendChild(a);
+      });
+      bubble.appendChild(box);
+    }
   } else {
     bubble.textContent = text;
   }
@@ -38,6 +74,31 @@ function addMessage(role, text) {
   row.appendChild(bubble);
   chatEl.appendChild(row);
   chatEl.scrollTop = chatEl.scrollHeight;
+  return row;
+}
+
+function addTyping() {
+  const row = document.createElement("div");
+  row.className = "message";
+  row.innerHTML =
+    '<div class="avatar bot">🤖</div><div class="bubble typing">🔎 Searching the web & thinking<span class="dots"></span></div>';
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return row;
+}
+
+function renderSuggestions() {
+  SUGGESTIONS.forEach((q) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = q;
+    b.addEventListener("click", () => {
+      input.value = q;
+      form.requestSubmit();
+    });
+    suggestionsEl.appendChild(b);
+  });
 }
 
 async function refreshHealth() {
@@ -66,6 +127,7 @@ form.addEventListener("submit", async (e) => {
   if (!text) return;
   addMessage("user", text);
   input.value = "";
+  const typing = addTyping();
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -73,10 +135,13 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ message: text, session_id: sessionId }),
     });
     const data = await res.json();
-    addMessage("bot", data.reply);
+    typing.remove();
+    addMessage("bot", data.reply, data.sources);
   } catch {
-    addMessage("bot", "Sorry, I could not reach the server. Start the API with: python run.py");
+    typing.remove();
+    addMessage("bot", "Sorry, I could not reach the server. Please try again in a moment.");
   }
 });
 
+renderSuggestions();
 refreshHealth();
