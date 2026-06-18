@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     edu_history_turns: int = 6
     edu_search_max_queries: int = 3
 
+    # --- Conversation logging (live database) ---
+    conversation_logging_enabled: bool = True
+    db_path: Path = ROOT / "data" / "conversations.db"
+
     def external_institutions_list(self) -> list[str]:
         return [x.strip().lower() for x in self.external_institutions.split(",") if x.strip()]
 

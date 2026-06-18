@@ -9,6 +9,8 @@ data/processed/
 data/reports/
 data/web_cache/
 data/search_cache/
+data/conversations.db
+*.db
 *.pt
 *.bin
 .cache/

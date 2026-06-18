@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conversation Database — Live</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    .admin { max-width: 1200px; }
+    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+    .toolbar .count { font-weight: 700; color: #4f46e5; }
+    .toolbar .live { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #16a34a; animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    .table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: #111827; color: #fff; position: sticky; top: 0; font-weight: 600; white-space: nowrap; }
+    tr:nth-child(even) td { background: #fafafa; }
+    td.q { max-width: 240px; }
+    td.a { max-width: 360px; color: #374151; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600; }
+    .pill.yes { background: #ede9fe; color: #6d28d9; }
+    .pill.no { background: #f1f5f9; color: #475569; }
+    .intent { background: #ecfeff; color: #0e7490; }
+    .ctx { font-family: ui-monospace, monospace; font-size: .72rem; color: #6b7280; max-width: 260px; white-space: pre-wrap; }
+    .row-new td { animation: flash 1.2s ease-out; }
+    @keyframes flash { from { background: #fef9c3; } to { background: transparent; } }
+    a.srclink { color: #2563eb; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="app admin">
+    <header class="header">
+      <span class="logo" aria-hidden="true">🗄️</span>
+      <div>
+        <h1>Conversation Database — Live</h1>
+        <p class="subtitle">Every student query is logged here in real time: user, question, intent, multi-intent, context and answer.</p>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <span class="count" id="count">0 rows</span>
+      <span class="live"><span class="dot"></span> Live — auto-refresh every 3s</span>
+      <a class="live" href="/" style="margin-left:auto">← Back to chatbot</a>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Time (UTC)</th><th>User ID</th><th>Question</th>
+            <th>Intent</th><th>Multi-intent</th><th>Context</th><th>Answer</th><th>Sources</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <script src="/static/admin.js"></script>
+</body>
+</html>

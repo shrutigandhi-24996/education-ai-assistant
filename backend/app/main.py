@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from backend.app import db
 from backend.app.config import settings
 from backend.app.pipeline.edu_orchestrator import EduOrchestrator
 
@@ -116,7 +117,18 @@ def refresh_web_cache() -> dict:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     result = orchestrator.chat(req.session_id, req.message)
+    db.log_conversation(req.session_id, req.message, result)
     return ChatResponse(**result)
+
+
+@app.get("/api/conversations")
+def conversations(limit: int = 100) -> dict:
+    """Recent logged conversation turns (powers the live DB viewer)."""
+    limit = max(1, min(limit, 500))
+    return {"count": db.count(), "rows": db.recent(limit)}
+
+
+db.init_db()
 
 
 if FRONTEND.exists():
@@ -125,3 +137,7 @@ if FRONTEND.exists():
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(FRONTEND / "index.html")
+
+    @app.get("/admin")
+    def admin() -> FileResponse:
+        return FileResponse(FRONTEND / "admin.html")
