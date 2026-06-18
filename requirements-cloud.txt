@@ -1,0 +1,8 @@
+# Lightweight deps for the Education AI brain (LLM + web search).
+# No torch / faiss / transformers — keeps the cloud image small and fast.
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+httpx>=0.27.0

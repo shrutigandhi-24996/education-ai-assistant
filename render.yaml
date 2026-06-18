@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: education-ai-assistant
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: ASSISTANT_MODE
+        value: education
+      - key: HOST
+        value: 0.0.0.0
+      - key: GROQ_API_KEY
+        sync: false        # set this in the Render dashboard (Environment tab)

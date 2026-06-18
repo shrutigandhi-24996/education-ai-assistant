@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+models/
+data/index/
+data/processed/
+data/reports/
+data/web_cache/
+data/search_cache/
+*.pt
+*.bin
+.cache/
+.DS_Store

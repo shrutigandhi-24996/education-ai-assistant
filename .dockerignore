@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+models/
+data/
+scripts/
+tests/
+docs/
+*.md
+.git/
+.gitignore
+requirements.txt

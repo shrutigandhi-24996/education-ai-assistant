@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Education AI Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="logo" aria-hidden="true">🎓</span>
+      <div>
+        <h1>Education AI Assistant</h1>
+        <p class="subtitle">Ask anything about education — admissions, any college/university, scholarships, departments, faculty, exams &amp; career guidance. I detect your intent (single or multiple) and search the web for up-to-date, source-cited answers.</p>
+      </div>
+    </header>
+
+    <main id="chat" class="chat" aria-live="polite"></main>
+
+    <form id="form" class="composer">
+      <input id="input" type="text" placeholder="Type your message..." autocomplete="off" required />
+      <button type="submit">Send</button>
+    </form>
+    <p id="status" class="status"></p>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
