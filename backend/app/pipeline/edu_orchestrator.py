@@ -16,6 +16,20 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.config import settings
+from backend.app.disambiguation import (
+    apply_resolutions,
+    find_ambiguous_terms,
+    format_clarification,
+    resolve_from_reply,
+)
+from backend.app.pipeline.institution_disambiguation import (
+    detect_institution,
+    expand_institution_aliases,
+    find_ambiguous_institutions,
+    format_institution_clarification,
+    resolve_from_history,
+    resolve_institution_from_reply,
+)
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.web_search import search_with_grounding
@@ -89,6 +103,11 @@ NOT_CONFIGURED_REPLY = (
 class EduSession:
     def __init__(self) -> None:
         self.history: list[dict[str, str]] = []
+        self.resolved_entities: dict[str, str] = {}
+        self.pending_institution: dict[str, list[dict[str, str]]] = {}
+        self.pending_course: dict[str, list[dict[str, str]]] = {}
+        self.pending_query: str | None = None
+        self.last_institution: str | None = None
 
 
 class EduOrchestrator:
@@ -183,6 +202,77 @@ class EduOrchestrator:
         session = self.get_session(session_id)
         text = preprocess(message)
 
+        # --- Disambiguation follow-up (user picked an option) ---
+        if session.pending_institution or session.pending_course:
+            saved_inst = dict(session.pending_institution)
+            saved_course = dict(session.pending_course)
+            saved_query = session.pending_query
+            inst_resolved = resolve_institution_from_reply(text, saved_inst)
+            course_resolved = resolve_from_reply(text, saved_course)
+            if not inst_resolved and not course_resolved:
+                reply = format_institution_clarification(saved_inst) or format_clarification(saved_course)
+                return {
+                    "reply": reply or "Please pick one of the numbered options so I can continue.",
+                    "intent": "clarification",
+                    "needs_clarification": True,
+                    "source": "clarification",
+                }
+            session.resolved_entities.update(inst_resolved)
+            session.resolved_entities.update(course_resolved)
+            session.pending_institution = {}
+            session.pending_course = {}
+            if inst_resolved:
+                session.last_institution = next(iter(inst_resolved.values()))
+            text = saved_query or text
+            session.pending_query = None
+            text = expand_institution_aliases(
+                apply_resolutions(text, session.resolved_entities),
+                session.resolved_entities,
+            )
+            return self._answer_resolved(session, text)
+
+        # Expand unambiguous short names early (VNSGU, IIT Bombay, …).
+        text = expand_institution_aliases(
+            apply_resolutions(text, session.resolved_entities),
+            session.resolved_entities,
+        )
+
+        # --- Detect ambiguous abbreviations (homographs) ---
+        inst_ambiguous = find_ambiguous_institutions(text, session.resolved_entities)
+        for term in list(inst_ambiguous.keys()):
+            from_hist = resolve_from_history(
+                term, session.history, session.resolved_entities, session.last_institution
+            )
+            if from_hist:
+                session.resolved_entities[term] = from_hist
+                session.last_institution = from_hist
+                del inst_ambiguous[term]
+
+        course_ambiguous = find_ambiguous_terms(text, session.resolved_entities)
+
+        if inst_ambiguous or course_ambiguous:
+            session.pending_institution = inst_ambiguous
+            session.pending_course = course_ambiguous
+            session.pending_query = text
+            parts = []
+            if inst_ambiguous:
+                parts.append(format_institution_clarification(inst_ambiguous))
+            if course_ambiguous:
+                parts.append(format_clarification(course_ambiguous))
+            return {
+                "reply": "\n\n".join(parts),
+                "intent": "clarification",
+                "needs_clarification": True,
+                "context": {
+                    "PendingDisambiguation": list(inst_ambiguous.keys()) + list(course_ambiguous.keys())
+                },
+                "source": "disambiguation",
+            }
+
+        return self._answer_resolved(session, text)
+
+    def _answer_resolved(self, session: EduSession, text: str) -> dict[str, Any]:
+        known_institution = detect_institution(text, session.resolved_entities)
         analysis = self.llm.analyze(text, session.history)
 
         if not analysis.get("is_education", True):
@@ -207,10 +297,9 @@ class EduOrchestrator:
                 "source": "clarification",
             }
 
-        # Deterministically force a live search for any institution or factual
-        # query (so worldwide colleges/universities/schools always get real,
-        # source-cited links, including official websites).
-        institution = (analysis.get("institution") or "").strip()
+        institution = (analysis.get("institution") or known_institution or "").strip()
+        if institution:
+            session.last_institution = institution
         force_web = self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
         if force_web or analysis.get("needs_web_search"):
@@ -228,6 +317,8 @@ class EduOrchestrator:
 
         intents = analysis.get("intents") or []
         context = self._pragmatic_context(analysis, intents, institution)
+        if session.resolved_entities:
+            context["ResolvedTerms"] = dict(session.resolved_entities)
         return {
             "reply": reply,
             "intent": intents[0] if intents else "general_query",

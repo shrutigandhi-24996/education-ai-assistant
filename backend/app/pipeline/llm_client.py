@@ -32,6 +32,7 @@ Return ONLY a JSON object (no prose) with this exact schema:
   "clarification": string|null       // if the query is too ambiguous to answer, a short clarifying question; else null
 }
 CRITICAL RULES:
+- Users often write SHORT NAMES or abbreviations (VNSGU, IIT, MIT, GTU, SRKI). The query may already contain the expanded full name after preprocessing — use that for "institution".
 - If "institution" is a specific named school/college/university anywhere in the world, then "needs_web_search" MUST be true and "search_queries" MUST include one query for its OFFICIAL WEBSITE (e.g. "<institution> official website") plus one for the topic.
 - General career guidance or 'how does X generally work' does NOT need web search.
 - Be strict about is_education: greetings/thanks count as education-context true."""
