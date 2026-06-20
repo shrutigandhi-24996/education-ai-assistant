@@ -28,7 +28,9 @@ def _prune_locked(now: float | None = None) -> None:
 def login(username: str, password: str) -> str | None:
     if not admin_configured():
         return None
-    if username != settings.admin_username or password != settings.admin_password:
+    if username.strip().lower() != settings.admin_username.strip().lower():
+        return None
+    if password != settings.admin_password:
         return None
     token = secrets.token_urlsafe(32)
     ttl = max(1, settings.admin_token_ttl_hours) * 3600
