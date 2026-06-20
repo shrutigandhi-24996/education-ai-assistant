@@ -182,3 +182,51 @@ body {
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* Modal (email sign-in, admin refresh) */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.modal.hidden { display: none; }
+.modal-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+.modal-card h2 { margin: 0 0 10px; font-size: 1.25rem; }
+.modal-text { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+.modal-text.warn { color: #b45309; }
+.modal-card input[type="email"] {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.modal-actions button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+  font-weight: 600;
+}
+.modal-actions button.primary { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+.modal-actions button.danger { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }

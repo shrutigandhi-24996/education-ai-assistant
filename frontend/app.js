@@ -6,13 +6,21 @@ const suggestionsEl = document.getElementById("suggestions");
 const USER_KEY = "edu_assistant_user_id";
 const SESSION_KEY = "edu_assistant_session_id";
 
+function isValidEmail(v) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
 function getUserId() {
   let id = localStorage.getItem(USER_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(USER_KEY, id);
+  if (id && id !== "anonymous" && !isValidEmail(id)) {
+    // Legacy UUID — keep until user provides email
+    return id;
   }
-  return id;
+  return id || null;
+}
+
+function setUserId(email) {
+  localStorage.setItem(USER_KEY, email.trim().toLowerCase());
 }
 
 function getSessionId() {
@@ -24,8 +32,31 @@ function getSessionId() {
   return id;
 }
 
-const userId = getUserId();
+let userId = getUserId();
 const sessionId = getSessionId();
+
+function ensureUserEmail() {
+  const modal = document.getElementById("email-modal");
+  const form = document.getElementById("email-form");
+  const inputEl = document.getElementById("email-input");
+  if (userId) return Promise.resolve(userId);
+
+  modal.classList.remove("hidden");
+  return new Promise((resolve) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const email = inputEl.value.trim().toLowerCase();
+      if (!isValidEmail(email)) {
+        alert("Please enter a valid email address (e.g. you@gmail.com).");
+        return;
+      }
+      setUserId(email);
+      userId = email;
+      modal.classList.add("hidden");
+      resolve(email);
+    }, { once: true });
+  });
+}
 
 const SUGGESTIONS = [
   "Admission process & fees at Stanford University",
@@ -147,6 +178,7 @@ form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
+  await ensureUserEmail();
   addMessage("user", text);
   input.value = "";
   const typing = addTyping();
@@ -167,3 +199,4 @@ form.addEventListener("submit", async (e) => {
 
 renderSuggestions();
 refreshHealth();
+ensureUserEmail();

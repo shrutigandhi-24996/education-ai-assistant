@@ -4,7 +4,9 @@ function esc(s) {
 }
 
 function shortId(id) {
-  return id && id.length > 10 ? id.slice(0, 8) + "…" : id || "—";
+  if (!id) return "—";
+  if (id.includes("@")) return id.length > 28 ? id.slice(0, 26) + "…" : id;
+  return id.length > 10 ? id.slice(0, 8) + "…" : id;
 }
 
 function ctxText(ctx) {
@@ -66,9 +68,10 @@ function rowHtml(r, isNew) {
 
 const rowsEl = document.getElementById("rows");
 const countEl = document.getElementById("count");
+const refreshModal = document.getElementById("refresh-modal");
 let seenTop = 0;
 
-async function refresh() {
+async function refreshTable() {
   try {
     const res = await fetch("/api/conversations?limit=200");
     const data = await res.json();
@@ -82,5 +85,45 @@ async function refresh() {
   }
 }
 
-refresh();
-setInterval(refresh, 3000);
+function downloadExport(fmt) {
+  window.location.href = `/api/conversations/export?fmt=${encodeURIComponent(fmt)}`;
+}
+
+function showModal() {
+  refreshModal.classList.remove("hidden");
+}
+
+function hideModal() {
+  refreshModal.classList.add("hidden");
+}
+
+async function clearDatabase() {
+  const res = await fetch("/api/conversations", { method: "DELETE" });
+  if (!res.ok) throw new Error("clear failed");
+  const data = await res.json();
+  alert(`Database refreshed. ${data.removed || 0} record(s) deleted.`);
+  seenTop = 0;
+  await refreshTable();
+}
+
+async function exportThenClear(fmt) {
+  downloadExport(fmt);
+  await new Promise((r) => setTimeout(r, 800));
+  await clearDatabase();
+  hideModal();
+}
+
+document.getElementById("export-btn").addEventListener("click", () => downloadExport("xlsx"));
+document.getElementById("export-pdf-btn").addEventListener("click", () => downloadExport("pdf"));
+document.getElementById("refresh-btn").addEventListener("click", showModal);
+document.getElementById("modal-cancel").addEventListener("click", hideModal);
+document.getElementById("modal-excel").addEventListener("click", () => exportThenClear("xlsx"));
+document.getElementById("modal-pdf").addEventListener("click", () => exportThenClear("pdf"));
+document.getElementById("modal-refresh-only").addEventListener("click", async () => {
+  if (!window.confirm("Are you sure? All conversation data will be permanently deleted.")) return;
+  await clearDatabase();
+  hideModal();
+});
+
+refreshTable();
+setInterval(refreshTable, 3000);

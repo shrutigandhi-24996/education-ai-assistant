@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Conversation Database — Live</title>
+  <title>Innovative Educational Chatbot — Admin Database</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <style>
     .admin { max-width: 1200px; }
@@ -12,6 +12,9 @@
     .toolbar .live { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #16a34a; animation: pulse 1.4s infinite; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    .toolbar button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; font-weight: 600; }
+    .toolbar button.primary { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    .toolbar button.danger { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
     table { border-collapse: collapse; width: 100%; font-size: .85rem; }
     th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -37,14 +40,17 @@
     <header class="header">
       <span class="logo" aria-hidden="true">🗄️</span>
       <div>
-        <h1>Conversation Database — Live</h1>
-        <p class="subtitle">Every student query is logged in real time with separate <strong>user ID</strong> and <strong>session ID</strong>, intent, multi-intent list, pragmatic context, and scenario (S1–S3 from your research diagrams).</p>
+        <h1>Innovative Educational Chatbot — Admin</h1>
+        <p class="subtitle">Every query is logged with <strong>user email/ID</strong>, session, intent, multi-intent, context, answer, and sources. Export to Excel or PDF before refreshing the database.</p>
       </div>
     </header>
 
     <div class="toolbar">
       <span class="count" id="count">0 rows</span>
       <span class="live"><span class="dot"></span> Live — auto-refresh every 3s</span>
+      <button type="button" id="export-btn" class="primary">Download Excel</button>
+      <button type="button" id="export-pdf-btn">Download PDF</button>
+      <button type="button" id="refresh-btn" class="danger">Refresh database</button>
       <a class="live" href="/" style="margin-left:auto">← Back to chatbot</a>
     </div>
 
@@ -60,6 +66,21 @@
       </table>
     </div>
   </div>
+
+  <div id="refresh-modal" class="modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="refresh-modal-title">
+    <div class="modal-card">
+      <h2 id="refresh-modal-title">Refresh database?</h2>
+      <p class="modal-text warn">If you refresh the data, <strong>all conversation records will be deleted</strong> from the database.</p>
+      <p class="modal-text">Do you want to download a backup first?</p>
+      <div class="modal-actions">
+        <button type="button" id="modal-excel" class="primary">Download Excel, then refresh</button>
+        <button type="button" id="modal-pdf">Download PDF, then refresh</button>
+        <button type="button" id="modal-refresh-only" class="danger">Refresh without download</button>
+        <button type="button" id="modal-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/admin.js"></script>
 </body>
 </html>

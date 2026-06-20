@@ -202,3 +202,128 @@ def count() -> int:
             return int(conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0])
     except Exception:
         return 0
+
+
+def fetch_all() -> list[dict[str, Any]]:
+    """All rows for export (oldest first)."""
+    if not settings.conversation_logging_enabled:
+        return []
+    try:
+        with _LOCK:
+            conn = _connect()
+            cur = conn.execute(
+                "SELECT id, created_at, user_id, session_id, turn_index, scenario, "
+                "question, intent, multi_intent, context, answer, sources "
+                "FROM conversations ORDER BY id ASC"
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+    except Exception:
+        return []
+    for r in rows:
+        for col in ("multi_intent", "context", "sources"):
+            try:
+                val = r.get(col)
+                if col == "context":
+                    r[col] = json.loads(val) if val else {}
+                elif col in ("multi_intent", "sources"):
+                    r[col] = json.loads(val) if val else []
+            except Exception:
+                r[col] = {} if col == "context" else []
+    return rows
+
+
+def clear_all() -> int:
+    """Delete every logged conversation. Returns rows removed."""
+    global _conn
+    try:
+        with _LOCK:
+            conn = _connect()
+            n = int(conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0])
+            conn.execute("DELETE FROM conversations")
+            conn.commit()
+            return n
+    except Exception:
+        return 0
+
+
+def _row_for_export(r: dict[str, Any]) -> dict[str, str]:
+    return {
+        "id": str(r.get("id", "")),
+        "created_at": str(r.get("created_at", "")),
+        "user_id": str(r.get("user_id", "")),
+        "session_id": str(r.get("session_id", "")),
+        "turn_index": str(r.get("turn_index", "")),
+        "scenario": str(r.get("scenario", "")),
+        "question": str(r.get("question", "")),
+        "intent": str(r.get("intent", "")),
+        "multi_intent": json.dumps(r.get("multi_intent") or [], ensure_ascii=False),
+        "context": json.dumps(r.get("context") or {}, ensure_ascii=False),
+        "answer": str(r.get("answer") or ""),
+        "sources": json.dumps(r.get("sources") or [], ensure_ascii=False),
+    }
+
+
+EXPORT_COLUMNS = [
+    "id", "created_at", "user_id", "session_id", "turn_index", "scenario",
+    "question", "intent", "multi_intent", "context", "answer", "sources",
+]
+
+
+def export_csv_bytes() -> bytes:
+    import csv
+    import io
+
+    buf = io.StringIO()
+    rows = fetch_all()
+    writer = csv.DictWriter(buf, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(_row_for_export(r))
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def export_xlsx_bytes() -> bytes:
+    import io
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return export_csv_bytes()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Conversations"
+    ws.append(EXPORT_COLUMNS)
+    for r in fetch_all():
+        flat = _row_for_export(r)
+        ws.append([flat[c] for c in EXPORT_COLUMNS])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def export_pdf_bytes() -> bytes:
+    import io
+
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        return b"PDF export requires fpdf2 package."
+
+    rows = fetch_all()
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=7)
+    cols = ["id", "created_at", "user_id", "question", "intent", "multi_intent"]
+    pdf.cell(0, 8, "Innovative Educational Chatbot - Conversation Export", ln=True)
+    pdf.ln(2)
+    for r in rows:
+        flat = _row_for_export(r)
+        line = " | ".join(f"{c}: {flat[c][:80]}" for c in cols)
+        pdf.multi_cell(0, 4, line)
+        pdf.ln(1)
+    out = pdf.output()
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return str(out).encode("latin-1", errors="replace")

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -16,8 +16,8 @@ FRONTEND = ROOT / "frontend"
 EDUCATION_MODE = settings.use_education_mode()
 
 app = FastAPI(
-    title="Education AI Assistant" if EDUCATION_MODE else "SRKI Hybrid College Assistant",
-    version="0.2.0",
+    title="Innovative Educational Chatbot" if EDUCATION_MODE else "SRKI Hybrid College Assistant",
+    version="0.3.0",
 )
 
 # In education mode we use the lightweight LLM+web brain (no local datasets / heavy
@@ -43,7 +43,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
-    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    user_id: str = Field(default="anonymous", min_length=1, max_length=256)
     session_id: str = Field(default="default", min_length=1, max_length=128)
 
 
@@ -127,6 +127,36 @@ def conversations(limit: int = 100) -> dict:
     """Recent logged conversation turns (powers the live DB viewer)."""
     limit = max(1, min(limit, 500))
     return {"count": db.count(), "rows": db.recent(limit)}
+
+
+@app.get("/api/conversations/export")
+def export_conversations(fmt: str = "xlsx") -> Response:
+    """Download all conversations as Excel (.xlsx), CSV, or PDF."""
+    fmt = fmt.lower().strip()
+    if fmt in ("xlsx", "excel"):
+        data = db.export_xlsx_bytes()
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        name = "conversations.xlsx"
+    elif fmt == "pdf":
+        data = db.export_pdf_bytes()
+        media = "application/pdf"
+        name = "conversations.pdf"
+    else:
+        data = db.export_csv_bytes()
+        media = "text/csv"
+        name = "conversations.csv"
+    return Response(
+        content=data,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.delete("/api/conversations")
+def clear_conversations() -> dict:
+    """Clear all logged conversations (admin refresh after optional export)."""
+    removed = db.clear_all()
+    return {"ok": True, "removed": removed}
 
 
 db.init_db()

@@ -20,6 +20,7 @@ from backend.app.disambiguation import (
     apply_resolutions,
     find_ambiguous_terms,
     format_clarification,
+    reconcile_resolutions,
     resolve_from_reply,
 )
 from backend.app.pipeline.institution_disambiguation import (
@@ -89,10 +90,26 @@ _OFFICIAL_DOMAIN = re.compile(
 )
 
 OFF_TOPIC_REPLY = (
-    "I'm an **Education assistant** — I help with admissions, colleges & universities, "
-    "courses, scholarships, exams, departments, faculty, fees, results, and career "
-    "guidance. Ask me anything in that space and I'll help!"
+    "I'm the **Innovative Educational Chatbot** — I focus on education topics: admissions, "
+    "colleges & universities, schools, courses, scholarships, exams, departments, faculty, "
+    "fees, results, and career guidance.\n\n"
+    "Your question seems outside this domain. Please ask me something related to education "
+    "and I'll search official sources to help you."
 )
+
+GREETING_REPLY = """Hello! Welcome to the **Innovative Educational Chatbot**.
+
+I'm here to help students, parents, and educators with:
+
+- Admissions, fees, scholarships & eligibility (any college/university/school worldwide)
+- Courses, departments, faculty & exam schedules
+- Career guidance in education
+- Official website links and up-to-date information from the web
+
+Ask me anything about education — you can use short names like **VNSGU**, **IIT**, **MIT**, etc.
+If an abbreviation is ambiguous, I'll ask you to pick the correct option.
+
+How can I help you today?"""
 
 NOT_CONFIGURED_REPLY = (
     "The AI brain isn't configured yet. Add a Groq API key to `.env` "
@@ -123,6 +140,17 @@ class EduOrchestrator:
         if session_id not in self.sessions:
             self.sessions[session_id] = EduSession()
         return self.sessions[session_id]
+
+    @staticmethod
+    def _is_greeting(text: str) -> bool:
+        t = text.lower().strip(" .!?")
+        if t in {
+            "hello", "hi", "hey", "hello..", "hii", "hiii",
+            "good morning", "good afternoon", "good evening",
+            "namaste", "howdy",
+        }:
+            return True
+        return t.startswith(("hello ", "hi ", "hey ", "good morning", "good afternoon"))
 
     @staticmethod
     def _is_official(url: str) -> bool:
@@ -202,6 +230,21 @@ class EduOrchestrator:
         session = self.get_session(session_id)
         text = preprocess(message)
 
+        if self._is_greeting(text):
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": GREETING_REPLY})
+            return {
+                "reply": GREETING_REPLY,
+                "intent": "general_greeting",
+                "intents": ["general_greeting"],
+                "is_multi_intent": False,
+                "role": "student",
+                "context": {"Topic": ["greeting"]},
+                "source": "greeting",
+            }
+
+        reconcile_resolutions(text, session.resolved_entities)
+
         # --- Disambiguation follow-up (user picked an option) ---
         if session.pending_institution or session.pending_course:
             saved_inst = dict(session.pending_institution)
@@ -279,9 +322,10 @@ class EduOrchestrator:
             return {
                 "reply": OFF_TOPIC_REPLY,
                 "intent": "off_topic",
-                "intents": analysis.get("intents"),
+                "intents": ["off_topic"],
+                "is_multi_intent": False,
                 "role": analysis.get("user_role"),
-                "context": {},
+                "context": {"Topic": ["out_of_domain"]},
                 "source": "domain_guard",
             }
 
