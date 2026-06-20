@@ -176,6 +176,12 @@ body {
 }
 
 .composer button:hover { background: #4338ca; }
+.composer input:disabled,
+.composer button:disabled,
+.suggestions .chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .status {
   margin: 8px 0 0;

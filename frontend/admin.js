@@ -1,3 +1,5 @@
+const ADMIN_TOKEN_KEY = "edu_admin_token";
+
 function esc(s) {
   return (s == null ? "" : String(s))
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -7,6 +9,28 @@ function shortId(id) {
   if (!id) return "—";
   if (id.includes("@")) return id.length > 28 ? id.slice(0, 26) + "…" : id;
   return id.length > 10 ? id.slice(0, 8) + "…" : id;
+}
+
+function getToken() {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+function setToken(token) {
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+function clearToken() {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = { ...authHeaders(), ...(options.headers || {}) };
+  return fetch(url, { ...options, headers });
 }
 
 function ctxText(ctx) {
@@ -66,14 +90,92 @@ function rowHtml(r, isNew) {
   </tr>`;
 }
 
+const loginScreen = document.getElementById("login-screen");
+const adminPanel = document.getElementById("admin-panel");
+const loginForm = document.getElementById("login-form");
+const loginError = document.getElementById("login-error");
 const rowsEl = document.getElementById("rows");
 const countEl = document.getElementById("count");
 const refreshModal = document.getElementById("refresh-modal");
 let seenTop = 0;
+let refreshTimer = null;
+
+function showLogin() {
+  loginScreen.classList.remove("hidden-panel");
+  adminPanel.classList.add("hidden-panel");
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function showDashboard() {
+  loginScreen.classList.add("hidden-panel");
+  adminPanel.classList.remove("hidden-panel");
+  if (!refreshTimer) {
+    refreshTimer = setInterval(refreshTable, 3000);
+  }
+}
+
+function showLoginError(msg) {
+  loginError.textContent = msg;
+  loginError.classList.remove("hidden");
+}
+
+async function checkSession() {
+  const res = await apiFetch("/api/admin/status");
+  const data = await res.json();
+  if (data.authenticated) {
+    showDashboard();
+    await refreshTable();
+    return true;
+  }
+  clearToken();
+  showLogin();
+  return false;
+}
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.classList.add("hidden");
+  const username = document.getElementById("admin-user").value.trim();
+  const password = document.getElementById("admin-pass").value;
+  try {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.token) {
+      showLoginError(data.detail || data.message || "Invalid username or password.");
+      return;
+    }
+    setToken(data.token);
+    showDashboard();
+    await refreshTable();
+  } catch {
+    showLoginError("Could not reach the server. Try again.");
+  }
+});
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  try {
+    await apiFetch("/api/admin/logout", { method: "POST" });
+  } catch {}
+  clearToken();
+  showLogin();
+});
 
 async function refreshTable() {
   try {
-    const res = await fetch("/api/conversations?limit=200");
+    const res = await apiFetch("/api/conversations?limit=200");
+    if (res.status === 401) {
+      clearToken();
+      showLogin();
+      showLoginError("Session expired. Please sign in again.");
+      return;
+    }
     const data = await res.json();
     const rows = data.rows || [];
     const topId = rows.length ? rows[0].id : 0;
@@ -85,8 +187,21 @@ async function refreshTable() {
   }
 }
 
-function downloadExport(fmt) {
-  window.location.href = `/api/conversations/export?fmt=${encodeURIComponent(fmt)}`;
+async function downloadExport(fmt) {
+  const res = await apiFetch(`/api/conversations/export?fmt=${encodeURIComponent(fmt)}`);
+  if (res.status === 401) {
+    clearToken();
+    showLogin();
+    showLoginError("Session expired. Please sign in again.");
+    return;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fmt === "pdf" ? "conversations.pdf" : "conversations.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function showModal() {
@@ -98,7 +213,12 @@ function hideModal() {
 }
 
 async function clearDatabase() {
-  const res = await fetch("/api/conversations", { method: "DELETE" });
+  const res = await apiFetch("/api/conversations", { method: "DELETE" });
+  if (res.status === 401) {
+    clearToken();
+    showLogin();
+    return;
+  }
   if (!res.ok) throw new Error("clear failed");
   const data = await res.json();
   alert(`Database refreshed. ${data.removed || 0} record(s) deleted.`);
@@ -107,7 +227,7 @@ async function clearDatabase() {
 }
 
 async function exportThenClear(fmt) {
-  downloadExport(fmt);
+  await downloadExport(fmt);
   await new Promise((r) => setTimeout(r, 800));
   await clearDatabase();
   hideModal();
@@ -125,5 +245,4 @@ document.getElementById("modal-refresh-only").addEventListener("click", async ()
   hideModal();
 });
 
-refreshTable();
-setInterval(refreshTable, 3000);
+checkSession();

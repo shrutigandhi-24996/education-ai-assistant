@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     conversation_logging_enabled: bool = True
     db_path: Path = ROOT / "data" / "conversations.db"
 
+    # --- Admin dashboard (protect /admin and conversation APIs) ---
+    admin_username: str = "admin"
+    admin_password: str = ""
+    admin_token_ttl_hours: int = 24
+
     def external_institutions_list(self) -> list[str]:
         return [x.strip().lower() for x in self.external_institutions.split(",") if x.strip()]
 

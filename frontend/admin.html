@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Innovative Educational Chatbot — Admin Database</title>
+  <title>Innovative Educational Chatbot — Admin</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <style>
     .admin { max-width: 1200px; }
@@ -33,15 +33,37 @@
     .row-new td { animation: flash 1.2s ease-out; }
     @keyframes flash { from { background: #fef9c3; } to { background: transparent; } }
     a.srclink { color: #2563eb; text-decoration: none; }
+    .login-card { max-width: 400px; margin: 48px auto; }
+    .login-card input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: 1rem; margin-bottom: 12px; }
+    .login-error { color: #b91c1c; font-size: .9rem; margin: 0 0 12px; }
+    .hidden-panel { display: none !important; }
   </style>
 </head>
 <body>
-  <div class="app admin">
+  <div id="login-screen" class="app admin">
+    <div class="modal-card login-card">
+      <h1 style="margin:0 0 8px;font-size:1.4rem">Admin login</h1>
+      <p class="modal-text">Only the admin can view the conversation database. Enter your admin credentials.</p>
+      <p id="login-error" class="login-error hidden"></p>
+      <form id="login-form">
+        <label for="admin-user">Username</label>
+        <input id="admin-user" type="text" autocomplete="username" required />
+        <label for="admin-pass">Password</label>
+        <input id="admin-pass" type="password" autocomplete="current-password" required />
+        <div class="modal-actions">
+          <button type="submit" class="primary">Sign in</button>
+          <a href="/" class="live" style="align-self:center">← Back to chatbot</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="admin-panel" class="app admin hidden-panel">
     <header class="header">
       <span class="logo" aria-hidden="true">🗄️</span>
       <div>
         <h1>Innovative Educational Chatbot — Admin</h1>
-        <p class="subtitle">Every query is logged with <strong>user email/ID</strong>, session, intent, multi-intent, context, answer, and sources. Export to Excel or PDF before refreshing the database.</p>
+        <p class="subtitle">Every query is logged with <strong>user email</strong>, session, intent, multi-intent, context, answer, and sources.</p>
       </div>
     </header>
 
@@ -51,6 +73,7 @@
       <button type="button" id="export-btn" class="primary">Download Excel</button>
       <button type="button" id="export-pdf-btn">Download PDF</button>
       <button type="button" id="refresh-btn" class="danger">Refresh database</button>
+      <button type="button" id="logout-btn">Logout</button>
       <a class="live" href="/" style="margin-left:auto">← Back to chatbot</a>
     </div>
 
@@ -58,7 +81,7 @@
       <table>
         <thead>
           <tr>
-            <th>#</th><th>Time (UTC)</th><th>User ID</th><th>Session</th><th>Scenario</th>
+            <th>#</th><th>Time (UTC)</th><th>User email</th><th>Session</th><th>Scenario</th>
             <th>Question</th><th>Intent</th><th>Multi-intent</th><th>Context</th><th>Answer</th><th>Sources</th>
           </tr>
         </thead>

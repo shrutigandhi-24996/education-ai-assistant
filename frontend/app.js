@@ -3,7 +3,8 @@ const form = document.getElementById("form");
 const input = document.getElementById("input");
 const statusEl = document.getElementById("status");
 const suggestionsEl = document.getElementById("suggestions");
-const USER_KEY = "edu_assistant_user_id";
+const USER_KEY = "edu_assistant_user_email";
+const LEGACY_USER_KEY = "edu_assistant_user_id";
 const SESSION_KEY = "edu_assistant_session_id";
 
 function isValidEmail(v) {
@@ -11,16 +12,14 @@ function isValidEmail(v) {
 }
 
 function getUserId() {
-  let id = localStorage.getItem(USER_KEY);
-  if (id && id !== "anonymous" && !isValidEmail(id)) {
-    // Legacy UUID — keep until user provides email
-    return id;
-  }
-  return id || null;
+  const email = localStorage.getItem(USER_KEY);
+  if (email && isValidEmail(email)) return email.trim().toLowerCase();
+  return null;
 }
 
 function setUserId(email) {
   localStorage.setItem(USER_KEY, email.trim().toLowerCase());
+  localStorage.removeItem(LEGACY_USER_KEY);
 }
 
 function getSessionId() {
@@ -35,15 +34,29 @@ function getSessionId() {
 let userId = getUserId();
 const sessionId = getSessionId();
 
+function setChatEnabled(enabled) {
+  input.disabled = !enabled;
+  form.querySelector("button[type=submit]").disabled = !enabled;
+  suggestionsEl.querySelectorAll("button").forEach((b) => {
+    b.disabled = !enabled;
+  });
+}
+
 function ensureUserEmail() {
   const modal = document.getElementById("email-modal");
-  const form = document.getElementById("email-form");
+  const emailForm = document.getElementById("email-form");
   const inputEl = document.getElementById("email-input");
-  if (userId) return Promise.resolve(userId);
 
+  if (userId) {
+    setChatEnabled(true);
+    return Promise.resolve(userId);
+  }
+
+  setChatEnabled(false);
   modal.classList.remove("hidden");
+
   return new Promise((resolve) => {
-    form.addEventListener("submit", (e) => {
+    emailForm.addEventListener("submit", (e) => {
       e.preventDefault();
       const email = inputEl.value.trim().toLowerCase();
       if (!isValidEmail(email)) {
@@ -53,6 +66,7 @@ function ensureUserEmail() {
       setUserId(email);
       userId = email;
       modal.classList.add("hidden");
+      setChatEnabled(true);
       resolve(email);
     }, { once: true });
   });
@@ -190,6 +204,11 @@ form.addEventListener("submit", async (e) => {
     });
     const data = await res.json();
     typing.remove();
+    if (!res.ok) {
+      addMessage("bot", data.detail || "Please enter your email to continue.");
+      await ensureUserEmail();
+      return;
+    }
     addMessage("bot", data.reply, data.sources);
   } catch {
     typing.remove();

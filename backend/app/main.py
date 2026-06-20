@@ -1,14 +1,15 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.app import db
+from backend.app import admin_auth, db
 from backend.app.config import settings
 from backend.app.pipeline.edu_orchestrator import EduOrchestrator
+from backend.app.user_id import is_valid_user_email
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
@@ -75,6 +76,22 @@ class HealthResponse(BaseModel):
     web_cache_fresh: bool = False
 
 
+class AdminLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AdminLoginResponse(BaseModel):
+    ok: bool
+    token: str | None = None
+    message: str | None = None
+
+
+class AdminStatusResponse(BaseModel):
+    configured: bool
+    authenticated: bool
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     if EDUCATION_MODE:
@@ -117,20 +134,61 @@ def refresh_web_cache() -> dict:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
+    if not is_valid_user_email(req.user_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Please sign in with a valid email address (e.g. you@gmail.com) before chatting.",
+        )
     result = orchestrator.chat(req.session_id, req.message)
-    db.log_conversation(req.user_id, req.session_id, req.message, result)
+    db.log_conversation(req.user_id.strip().lower(), req.session_id, req.message, result)
     return ChatResponse(**result)
 
 
+@app.get("/api/admin/status", response_model=AdminStatusResponse)
+def admin_status(authorization: str | None = Header(None)) -> AdminStatusResponse:
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    return AdminStatusResponse(
+        configured=admin_auth.admin_configured(),
+        authenticated=admin_auth.verify_token(token),
+    )
+
+
+@app.post("/api/admin/login", response_model=AdminLoginResponse)
+def admin_login(body: AdminLoginRequest) -> AdminLoginResponse:
+    if not admin_auth.admin_configured():
+        return AdminLoginResponse(
+            ok=False,
+            message="Admin password is not configured on the server.",
+        )
+    token = admin_auth.login(body.username.strip(), body.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid admin username or password.")
+    return AdminLoginResponse(ok=True, token=token)
+
+
+@app.post("/api/admin/logout")
+def admin_logout(token: str = Depends(admin_auth.require_admin)) -> dict:
+    admin_auth.logout(token)
+    return {"ok": True}
+
+
 @app.get("/api/conversations")
-def conversations(limit: int = 100) -> dict:
-    """Recent logged conversation turns (powers the live DB viewer)."""
+def conversations(
+    limit: int = 100,
+    _token: str = Depends(admin_auth.require_admin),
+) -> dict:
+    """Recent logged conversation turns (admin only)."""
     limit = max(1, min(limit, 500))
     return {"count": db.count(), "rows": db.recent(limit)}
 
 
 @app.get("/api/conversations/export")
-def export_conversations(fmt: str = "xlsx") -> Response:
+def export_conversations(
+    fmt: str = "xlsx",
+    _token: str = Depends(admin_auth.require_admin),
+) -> Response:
     """Download all conversations as Excel (.xlsx), CSV, or PDF."""
     fmt = fmt.lower().strip()
     if fmt in ("xlsx", "excel"):
@@ -153,7 +211,7 @@ def export_conversations(fmt: str = "xlsx") -> Response:
 
 
 @app.delete("/api/conversations")
-def clear_conversations() -> dict:
+def clear_conversations(_token: str = Depends(admin_auth.require_admin)) -> dict:
     """Clear all logged conversations (admin refresh after optional export)."""
     removed = db.clear_all()
     return {"ok": True, "removed": removed}
