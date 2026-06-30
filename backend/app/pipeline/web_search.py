@@ -33,7 +33,23 @@ _RESULT_SNIPPET = re.compile(
     r'class=["\'](?:result__snippet|result-snippet)["\'][^>]*>(.*?)</(?:a|td)>',
     re.I | re.S,
 )
+_OFFICIAL_HOST = re.compile(
+    r"(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|"
+    r"\.ac\.in|\.edu\.in|\.nic\.in|\.res\.in)$"
+)
 _TAG = re.compile(r"<[^>]+>")
+
+
+def _is_official_url(url: str) -> bool:
+    try:
+        host = urlparse(url).netloc.lower().split(":")[0]
+    except Exception:
+        return False
+    return bool(_OFFICIAL_HOST.search(host))
+
+
+def _rank_results(results: list[dict]) -> list[dict]:
+    return sorted(results, key=lambda r: (0 if _is_official_url(r.get("url", "")) else 1))
 
 
 def _strip_tags(value: str) -> str:
@@ -171,6 +187,7 @@ def search_with_grounding(query: str, institution: str | None = None) -> dict:
         return {"results": cached, "grounded": bool(cached), "cached": True}
 
     results = search_web(query)
+    results = _rank_results(results)
     fetch_n = min(settings.external_search_fetch_pages, len(results))
     for r in results[:fetch_n]:
         extract = fetch_page_extract(r["url"], query)

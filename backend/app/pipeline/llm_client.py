@@ -59,8 +59,10 @@ ACCURACY / ANTI-HALLUCINATION (very important):
 LINKS (always do this when WEB CONTEXT is present):
 - If any source is tagged [OFFICIAL], show it first under an "🏛️ Official website" line with the full link.
 - End every answer that used WEB CONTEXT with a "Sources" section listing the links you used (markdown links).
-- For an institution (any college/university/school worldwide), always try to give at least one valid link,
-  preferring the official website.
+- For ANY college, university, or school question, you MUST include at least one official website link
+  from the WEB CONTEXT. If the user asks about admissions, fees, courses, or departments, cite the
+  relevant official page link when available.
+- Tell the user they can verify details on the official site links you provide.
 
 SCOPE: If the question is outside education, politely decline and steer back to education topics."""
 
@@ -118,7 +120,10 @@ class LLMClient:
             )
             data = json.loads(raw)
         except Exception:
-            # Fail open: treat as education, no web search.
+            low = message.lower()
+            inst_words = ("university", "college", "school", "institute", "vnsgu", "iit", "mit")
+            fact_words = ("admission", "fee", "fees", "scholarship", "course", "department")
+            needs_web = any(w in low for w in inst_words) or any(w in low for w in fact_words)
             return {
                 "is_education": True,
                 "topic": message[:60],
@@ -126,8 +131,8 @@ class LLMClient:
                 "user_role": "student",
                 "intents": ["general_query"],
                 "is_multi_intent": False,
-                "needs_web_search": False,
-                "search_queries": [],
+                "needs_web_search": needs_web,
+                "search_queries": [message, f"{message} official website"] if needs_web else [],
                 "clarification": None,
             }
         data.setdefault("is_education", True)

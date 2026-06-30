@@ -103,7 +103,7 @@ function hostOf(url) {
 }
 
 function isOfficial(url) {
-  return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3})$/.test(hostOf(url));
+  return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|\.ac\.in|\.edu\.in|\.nic\.in)$/.test(hostOf(url));
 }
 
 function addMessage(role, text, sources) {
@@ -121,7 +121,7 @@ function addMessage(role, text, sources) {
       box.className = "sources";
       const label = document.createElement("span");
       label.className = "src-label";
-      label.textContent = "Sources (verify on official sites):";
+      label.textContent = "Official sources & links (verify here):";
       box.appendChild(label);
       sources.slice(0, 6).forEach((url) => {
         const a = document.createElement("a");

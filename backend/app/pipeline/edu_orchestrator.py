@@ -86,7 +86,8 @@ _FACTUAL_WORDS = (
 
 # Official / authoritative domains to surface first.
 _OFFICIAL_DOMAIN = re.compile(
-    r"(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3})$"
+    r"(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|"
+    r"\.ac\.in|\.edu\.in|\.nic\.in|\.res\.in)$"
 )
 
 OFF_TOPIC_REPLY = (
@@ -166,6 +167,43 @@ class EduOrchestrator:
             w in low for w in _FACTUAL_WORDS
         )
 
+    def _institution_query(self, text: str, institution: str, session: EduSession) -> bool:
+        """True when the user is asking about a college/university/school."""
+        if institution or session.last_institution:
+            return True
+        if detect_institution(text, session.resolved_entities):
+            return True
+        return self._needs_facts(text) and any(w in text.lower() for w in _INSTITUTION_WORDS)
+
+    @staticmethod
+    def _link_label(url: str) -> str:
+        try:
+            host = urlparse(url).netloc.lower().replace("www.", "")
+            return host or url
+        except Exception:
+            return url
+
+    def _boost_analysis_for_institution(
+        self, analysis: dict[str, Any], text: str, institution: str
+    ) -> None:
+        if not institution:
+            return
+        analysis["needs_web_search"] = True
+        topic = (analysis.get("topic") or "").strip()
+        extras = [
+            f"{institution} official website",
+            f"{institution} admissions official site",
+        ]
+        if topic:
+            extras.append(f"{institution} {topic}")
+        queries = list(analysis.get("search_queries") or [])
+        for q in extras:
+            if q not in queries:
+                queries.append(q)
+        if text not in queries:
+            queries.append(text)
+        analysis["search_queries"] = queries
+
     def _build_queries(
         self, text: str, analysis: dict[str, Any], institution: str = ""
     ) -> list[str]:
@@ -173,6 +211,7 @@ class EduOrchestrator:
         # When a specific institution is named, probe its official website first.
         if institution:
             queries.append(f"{institution} official website")
+            queries.append(f"{institution} admissions")
             topic = (analysis.get("topic") or "").strip()
             queries.append(f"{institution} {topic}".strip() if topic else institution)
         # The LLM's own suggestions next (often well-scoped).
@@ -185,23 +224,37 @@ class EduOrchestrator:
         official_probe = f"{text} official website"
         if not institution and official_probe not in queries:
             queries.append(official_probe)
-        return queries[: settings.edu_search_max_queries + 1]
+        return queries[: max(settings.edu_search_max_queries + 2, 5)]
 
-    def _ensure_links(self, reply: str, sources: list[str]) -> str:
-        """Guarantee the answer carries at least one valid link when we have sources."""
+    def _ensure_links(self, reply: str, sources: list[str], institution: str = "") -> str:
+        """Always surface clickable official links for college/university answers."""
+        if not sources and institution:
+            return (
+                reply
+                + f"\n\n**Official sources:** Search \"{institution} official website\" "
+                "for the latest verified information."
+            )
         if not sources:
             return reply
-        if re.search(r"https?://", reply):
-            return reply  # model already cited links
+
         official = [u for u in sources if self._is_official(u)]
-        lines = ["", "**Sources / official links:**"]
-        ordered = (official or []) + [u for u in sources if u not in official]
-        for u in ordered[:5]:
-            tag = " (official)" if self._is_official(u) else ""
-            lines.append(f"- {u}{tag}")
+        ordered = official + [u for u in sources if u not in official]
+        ordered = ordered[:6]
+
+        if institution:
+            header = "**Official sources & links (verify on these sites):**"
+        else:
+            header = "**Sources / official links:**"
+
+        lines = ["", header]
+        for u in ordered:
+            tag = " *(official)*" if self._is_official(u) else ""
+            lines.append(f"- [{self._link_label(u)}]({u}){tag}")
         return reply + "\n" + "\n".join(lines)
 
-    def _gather_web_context(self, queries: list[str]) -> tuple[str, list[str]]:
+    def _gather_web_context(
+        self, queries: list[str], institution: str = ""
+    ) -> tuple[str, list[str]]:
         blocks: list[str] = []
         official: list[str] = []
         others: list[str] = []
@@ -215,9 +268,22 @@ class EduOrchestrator:
                     continue
                 seen.add(url)
                 tag = "OFFICIAL" if self._is_official(url) else "web"
-                if body:
-                    snippet = body if len(body) <= 700 else body[:700].rsplit(" ", 1)[0] + "…"
+                snippet = body if body else (r.get("snippet") or "").strip()
+                if snippet:
+                    snippet = snippet if len(snippet) <= 700 else snippet[:700].rsplit(" ", 1)[0] + "…"
                     blocks.append(f"[{tag}] {r.get('title') or url}\n{snippet}\nSource: {url}")
+                elif url:
+                    blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
+                (official if tag == "OFFICIAL" else others).append(url)
+        if institution and not official and not others:
+            payload = search_with_grounding(f"{institution} official website")
+            for r in (payload.get("results") or [])[:3]:
+                url = r.get("url")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                tag = "OFFICIAL" if self._is_official(url) else "web"
+                blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
                 (official if tag == "OFFICIAL" else others).append(url)
         # Official links first so the model and the UI surface them prominently.
         sources = official + others
@@ -341,17 +407,23 @@ class EduOrchestrator:
                 "source": "clarification",
             }
 
-        institution = (analysis.get("institution") or known_institution or "").strip()
+        institution = (
+            (analysis.get("institution") or known_institution or session.last_institution or "")
+            .strip()
+        )
         if institution:
             session.last_institution = institution
-        force_web = self._needs_facts(text) or bool(institution)
+            self._boost_analysis_for_institution(analysis, text, institution)
+
+        is_institution_q = self._institution_query(text, institution, session)
+        force_web = is_institution_q or self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
         if force_web or analysis.get("needs_web_search"):
             queries = self._build_queries(text, analysis, institution)
-            web_context, sources = self._gather_web_context(queries)
+            web_context, sources = self._gather_web_context(queries, institution)
 
         reply = self.llm.generate(text, analysis, web_context, session.history)
-        reply = self._ensure_links(reply, sources)
+        reply = self._ensure_links(reply, sources, institution)
 
         session.history.append({"role": "user", "content": text})
         session.history.append({"role": "assistant", "content": reply})
