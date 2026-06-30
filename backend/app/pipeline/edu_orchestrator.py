@@ -32,6 +32,7 @@ from backend.app.pipeline.institution_disambiguation import (
     resolve_institution_from_reply,
 )
 from backend.app.pipeline.llm_client import LLMClient
+from backend.app.pipeline.official_links import get_official_search_results
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.web_search import search_with_grounding
 
@@ -253,38 +254,41 @@ class EduOrchestrator:
         return reply + "\n" + "\n".join(lines)
 
     def _gather_web_context(
-        self, queries: list[str], institution: str = ""
+        self, queries: list[str], institution: str = "", user_query: str = ""
     ) -> tuple[str, list[str]]:
         blocks: list[str] = []
         official: list[str] = []
         others: list[str] = []
         seen: set[str] = set()
+
+        def _add_result(r: dict[str, Any]) -> None:
+            url = r.get("url")
+            if not url or url in seen:
+                return
+            seen.add(url)
+            tag = "OFFICIAL" if self._is_official(url) or r.get("curated") else "web"
+            body = (r.get("extract") or r.get("snippet") or "").strip()
+            if body:
+                body = body if len(body) <= 700 else body[:700].rsplit(" ", 1)[0] + "…"
+                blocks.append(f"[{tag}] {r.get('title') or url}\n{body}\nSource: {url}")
+            else:
+                blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
+            (official if tag == "OFFICIAL" else others).append(url)
+
+        # Curated official links first (works even when DuckDuckGo is blocked on cloud hosts).
+        if institution:
+            for r in get_official_search_results(institution, user_query or institution):
+                _add_result(r)
+
         for q in queries:
             payload = search_with_grounding(q)
             for r in (payload.get("results") or [])[:4]:
-                url = r.get("url")
-                body = (r.get("extract") or r.get("snippet") or "").strip()
-                if not url or url in seen:
-                    continue
-                seen.add(url)
-                tag = "OFFICIAL" if self._is_official(url) else "web"
-                snippet = body if body else (r.get("snippet") or "").strip()
-                if snippet:
-                    snippet = snippet if len(snippet) <= 700 else snippet[:700].rsplit(" ", 1)[0] + "…"
-                    blocks.append(f"[{tag}] {r.get('title') or url}\n{snippet}\nSource: {url}")
-                elif url:
-                    blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
-                (official if tag == "OFFICIAL" else others).append(url)
+                _add_result(r)
+
         if institution and not official and not others:
             payload = search_with_grounding(f"{institution} official website")
             for r in (payload.get("results") or [])[:3]:
-                url = r.get("url")
-                if not url or url in seen:
-                    continue
-                seen.add(url)
-                tag = "OFFICIAL" if self._is_official(url) else "web"
-                blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
-                (official if tag == "OFFICIAL" else others).append(url)
+                _add_result(r)
         # Official links first so the model and the UI surface them prominently.
         sources = official + others
         return "\n\n---\n\n".join(blocks), sources
@@ -420,7 +424,7 @@ class EduOrchestrator:
         web_context, sources = "", []
         if force_web or analysis.get("needs_web_search"):
             queries = self._build_queries(text, analysis, institution)
-            web_context, sources = self._gather_web_context(queries, institution)
+            web_context, sources = self._gather_web_context(queries, institution, text)
 
         reply = self.llm.generate(text, analysis, web_context, session.history)
         reply = self._ensure_links(reply, sources, institution)

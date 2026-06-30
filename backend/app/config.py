@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     external_search_enabled: bool = True
     external_search_max_results: int = 5
     external_search_fetch_pages: int = 1
-    external_search_timeout: int = 9
+    external_search_timeout: int = 15
     external_search_cache_ttl_hours: int = 12
     external_search_cache_dir: Path = ROOT / "data" / "search_cache"
     # Institutions explicitly treated as external (web-search routed)

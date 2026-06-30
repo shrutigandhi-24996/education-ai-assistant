@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from urllib.request import Request, urlopen
 
+import httpx
+
 from backend.app.config import settings
 from backend.app.pipeline.web_scraper import html_to_text
 
@@ -69,14 +71,21 @@ def _decode_ddg_href(href: str) -> str:
 
 
 def _http_get(url: str, timeout: int) -> str:
-    req = Request(
-        url,
-        headers={
-            "User-Agent": settings.web_user_agent,
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.text
+    except Exception:
+        pass
+    req = Request(url, headers=headers)
     with urlopen(req, timeout=timeout) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
         return resp.read().decode(charset, errors="replace")
