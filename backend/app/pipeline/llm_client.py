@@ -34,6 +34,8 @@ Return ONLY a JSON object (no prose) with this exact schema:
 CRITICAL RULES:
 - Users often write SHORT NAMES or abbreviations (VNSGU, IIT, MIT, GTU, SRKI). The query may already contain the expanded full name after preprocessing — use that for "institution".
 - If "institution" is a specific named school/college/university anywhere in the world, then "needs_web_search" MUST be true and "search_queries" MUST include one query for its OFFICIAL WEBSITE (e.g. "<institution> official website") plus one for the topic.
+- If the user asks for institution-specific facts (admissions, fees, courses, scholarships, exams, contact, departments) but does NOT name which university/college/school, set "institution" to null, "needs_web_search" to false, and "clarification" to a short question asking which institution and what they want to know.
+- General queries (top universities, career guidance, how to become X, comparisons) do NOT require a named institution — set clarification to null.
 - General career guidance or 'how does X generally work' does NOT need web search.
 - Be strict about is_education: greetings/thanks count as education-context true."""
 

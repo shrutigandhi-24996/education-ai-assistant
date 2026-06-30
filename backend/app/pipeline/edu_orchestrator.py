@@ -85,6 +85,17 @@ _FACTUAL_WORDS = (
     "syllabus",
 )
 
+# Comparative / general queries — no single named institution required.
+_GENERAL_QUERY_PATTERNS = (
+    r"\btop\s+\d*\s*(universities|colleges|schools)\b",
+    r"\bbest\s+(universities|colleges|schools)\b",
+    r"\bhow\s+(do|to)\s+(i|you)\s+become\b",
+    r"\bdifference\s+between\b",
+    r"\bcompare\b",
+    r"\bin\s+general\b",
+    r"\bwhich\s+(university|college|school)\s+is\s+best\b",
+)
+
 # Official / authoritative domains to surface first.
 _OFFICIAL_DOMAIN = re.compile(
     r"(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|"
@@ -109,6 +120,7 @@ I'm here to help students, parents, and educators with:
 - Official website links and up-to-date information from the web
 
 Ask me anything about education — you can use short names like **VNSGU**, **IIT**, **MIT**, etc.
+If you don't mention a university/college/school, I'll ask which one you mean so I can give **official links**.
 If an abbreviation is ambiguous, I'll ask you to pick the correct option.
 
 How can I help you today?"""
@@ -126,6 +138,8 @@ class EduSession:
         self.pending_institution: dict[str, list[dict[str, str]]] = {}
         self.pending_course: dict[str, list[dict[str, str]]] = {}
         self.pending_query: str | None = None
+        self.pending_institution_name: bool = False
+        self.pending_institution_query: str | None = None
         self.last_institution: str | None = None
 
 
@@ -175,6 +189,90 @@ class EduOrchestrator:
         if detect_institution(text, session.resolved_entities):
             return True
         return self._needs_facts(text) and any(w in text.lower() for w in _INSTITUTION_WORDS)
+
+    def _is_general_education_query(self, text: str) -> bool:
+        low = text.lower()
+        return any(re.search(p, low) for p in _GENERAL_QUERY_PATTERNS)
+
+    def _needs_named_institution(
+        self,
+        text: str,
+        analysis: dict[str, Any],
+        institution: str,
+        session: EduSession,
+    ) -> bool:
+        """User wants institution-specific facts but did not name which one."""
+        if institution or session.last_institution:
+            return False
+        if detect_institution(text, session.resolved_entities):
+            return False
+        if self._is_general_education_query(text):
+            return False
+
+        low = text.lower()
+        topic = (analysis.get("topic") or "").lower()
+        intents = analysis.get("intents") or []
+        intent_blob = " ".join(intents).lower()
+
+        factual = any(w in low for w in _FACTUAL_WORDS) or any(
+            k in intent_blob for k in ("admission", "fee", "scholarship", "department", "faculty", "exam", "placement", "contact", "course")
+        )
+        if not factual:
+            return False
+
+        # Named institution from LLM analysis counts as resolved.
+        if (analysis.get("institution") or "").strip():
+            return False
+
+        # Generic reference: "the university", "my college", "a school" without a proper name.
+        if re.search(r"\b(the|my|a|any|some|which)\s+(university|college|school|institute)\b", low):
+            return True
+
+        # Factual question with no institution words at all (e.g. "what is the admission process?").
+        if not any(w in low for w in _INSTITUTION_WORDS):
+            return True
+
+        return False
+
+    def _format_missing_institution_prompt(self, text: str, analysis: dict[str, Any]) -> str:
+        topic = (analysis.get("topic") or "").strip() or "your question"
+        intents = analysis.get("intents") or []
+        intent_hint = ", ".join(intents[:3]).replace("_", " ") if intents else topic
+
+        return (
+            "To give you an accurate answer with **official website links**, I need a little more clarity:\n\n"
+            "1. **Which university, college, or school** is this about?\n"
+            "2. **What exactly** do you want to know? (e.g. admissions, fees, courses, scholarships, "
+            "departments, exam dates, contact details)\n\n"
+            f"From your message I understood you may be asking about: **{intent_hint}**.\n\n"
+            "Please reply with the **institution name** (e.g. VNSGU, Stanford University, Delhi Public School) "
+            "and I will fetch **official sources** for that specific institution."
+        )
+
+    def _resolve_institution_from_reply(self, text: str, session: EduSession) -> str:
+        expanded = expand_institution_aliases(text, session.resolved_entities)
+        inst = detect_institution(expanded, session.resolved_entities)
+        if inst:
+            return inst
+        mini = self.llm.analyze(
+            f"User is naming a school/college/university for this question: {text}",
+            session.history,
+        )
+        inst = (mini.get("institution") or "").strip()
+        if inst:
+            return inst
+        cleaned = text.strip()
+        if cleaned and len(cleaned.split()) <= 8 and not self._is_greeting(cleaned):
+            return cleaned
+        return ""
+
+    def _merge_institution_query(self, institution: str, saved_query: str, reply: str) -> str:
+        blob = " ".join([saved_query, reply, institution]).lower()
+        if institution.lower() in blob and institution.lower() in saved_query.lower():
+            return saved_query
+        if institution.lower() in reply.lower():
+            return reply
+        return f"{institution} — {saved_query}"
 
     @staticmethod
     def _link_label(url: str) -> str:
@@ -243,7 +341,7 @@ class EduOrchestrator:
         ordered = ordered[:6]
 
         if institution:
-            header = "**Official sources & links (verify on these sites):**"
+            header = f"**Official sources & links for {institution} (verify here):**"
         else:
             header = "**Sources / official links:**"
 
@@ -314,6 +412,33 @@ class EduOrchestrator:
             }
 
         reconcile_resolutions(text, session.resolved_entities)
+
+        # --- User was asked which university/college/school ---
+        if session.pending_institution_name:
+            saved_query = session.pending_institution_query or ""
+            institution = self._resolve_institution_from_reply(text, session)
+            if institution:
+                session.pending_institution_name = False
+                session.pending_institution_query = None
+                session.last_institution = institution
+                merged = self._merge_institution_query(institution, saved_query, text)
+                merged = expand_institution_aliases(merged, session.resolved_entities)
+                return self._answer_resolved(session, merged)
+            prompt = (
+                "I still need the **name of the university, college, or school** to provide "
+                "official links.\n\nPlease reply with the institution name "
+                "(e.g. **VNSGU**, **Harvard University**, **Delhi Public School**)."
+            )
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": prompt})
+            return {
+                "reply": prompt,
+                "intent": "clarification",
+                "intents": ["missing_institution"],
+                "needs_clarification": True,
+                "context": {"Topic": ["institution_clarification"]},
+                "source": "clarification",
+            }
 
         # --- Disambiguation follow-up (user picked an option) ---
         if session.pending_institution or session.pending_course:
@@ -400,6 +525,43 @@ class EduOrchestrator:
             }
 
         clarification = analysis.get("clarification")
+        institution = (
+            (analysis.get("institution") or known_institution or session.last_institution or "")
+            .strip()
+        )
+
+        if self._needs_named_institution(text, analysis, institution, session):
+            reply = self._format_missing_institution_prompt(text, analysis)
+            session.pending_institution_name = True
+            session.pending_institution_query = text
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": reply})
+            intents = analysis.get("intents") or ["clarification"]
+            return {
+                "reply": reply,
+                "intent": "clarification",
+                "intents": intents,
+                "role": analysis.get("user_role"),
+                "context": self._pragmatic_context(analysis, intents, ""),
+                "needs_clarification": True,
+                "source": "institution_clarification",
+            }
+
+        if clarification and not institution:
+            session.pending_institution_name = True
+            session.pending_institution_query = text
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": clarification})
+            return {
+                "reply": clarification,
+                "intent": "clarification",
+                "intents": analysis.get("intents"),
+                "role": analysis.get("user_role"),
+                "context": self._pragmatic_context(analysis, analysis.get("intents") or [], ""),
+                "needs_clarification": True,
+                "source": "clarification",
+            }
+
         if clarification:
             return {
                 "reply": clarification,
@@ -411,10 +573,6 @@ class EduOrchestrator:
                 "source": "clarification",
             }
 
-        institution = (
-            (analysis.get("institution") or known_institution or session.last_institution or "")
-            .strip()
-        )
         if institution:
             session.last_institution = institution
             self._boost_analysis_for_institution(analysis, text, institution)
