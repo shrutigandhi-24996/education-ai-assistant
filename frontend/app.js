@@ -44,30 +44,42 @@ function getSessionId() {
 
 let userId = getUserId();
 const sessionId = getSessionId();
+let sending = false;
 
 function setChatEnabled(enabled) {
   input.disabled = !enabled;
-  form.querySelector("button[type=submit]").disabled = !enabled;
+  const sendBtn = document.getElementById("send-btn");
+  if (sendBtn) sendBtn.disabled = !enabled;
   suggestionsEl.querySelectorAll("button").forEach((b) => {
     b.disabled = !enabled;
   });
 }
 
-function ensureUserEmail() {
-  const modal = document.getElementById("email-modal");
-  const emailForm = document.getElementById("email-form");
-  const inputEl = document.getElementById("email-input");
+function setSending(active) {
+  sending = active;
+  setChatEnabled(!active);
+}
 
+function openEmailModal() {
+  const modal = document.getElementById("email-modal");
+  modal.classList.remove("hidden");
+  const emailInput = document.getElementById("email-input");
+  if (emailInput) emailInput.focus();
+}
+
+function closeEmailModal() {
+  document.getElementById("email-modal").classList.add("hidden");
+}
+
+function ensureUserEmail() {
   if (userId) {
-    setChatEnabled(true);
     return Promise.resolve(userId);
   }
-
-  setChatEnabled(false);
-  modal.classList.remove("hidden");
-
+  openEmailModal();
   return new Promise((resolve) => {
-    emailForm.addEventListener("submit", (e) => {
+    const emailForm = document.getElementById("email-form");
+    const inputEl = document.getElementById("email-input");
+    const onSubmit = (e) => {
       e.preventDefault();
       const email = inputEl.value.trim().toLowerCase();
       if (!isValidEmail(email)) {
@@ -76,11 +88,12 @@ function ensureUserEmail() {
       }
       setUserId(email);
       userId = email;
-      modal.classList.add("hidden");
-      setChatEnabled(true);
+      closeEmailModal();
       showLabelsIdle();
+      emailForm.removeEventListener("submit", onSubmit);
       resolve(email);
-    }, { once: true });
+    };
+    emailForm.addEventListener("submit", onSubmit);
   });
 }
 
@@ -352,9 +365,11 @@ async function refreshHealth() {
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (sending) return;
   const text = input.value.trim();
   if (!text) return;
   await ensureUserEmail();
+  setSending(true);
   showLabelsLoading(userId, text);
   addMessage("user", text);
   input.value = "";
@@ -371,7 +386,7 @@ form.addEventListener("submit", async (e) => {
       const errMsg = data.detail || "Please enter your email to continue.";
       showLabelsError(userId, text, errMsg);
       addMessage("bot", errMsg);
-      await ensureUserEmail();
+      openEmailModal();
       return;
     }
     showLabelsResult(userId, text, data);
@@ -380,10 +395,19 @@ form.addEventListener("submit", async (e) => {
     typing.remove();
     showLabelsError(userId, text, "Could not reach the server.");
     addMessage("bot", "Sorry, I could not reach the server. Please try again in a moment.");
+  } finally {
+    setSending(false);
   }
 });
 
-renderSuggestions();
-refreshHealth();
-ensureUserEmail();
-showLabelsIdle();
+function initApp() {
+  renderSuggestions();
+  refreshHealth();
+  showLabelsIdle();
+  setChatEnabled(true);
+  if (!userId) {
+    openEmailModal();
+  }
+}
+
+initApp();

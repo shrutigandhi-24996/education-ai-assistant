@@ -18,12 +18,171 @@ body {
 }
 
 .app {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 24px 16px 32px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+  flex: 1;
+}
+
+.chat-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.labels-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  position: sticky;
+  top: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.labels-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.labels-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.label-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.label-status.idle {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.label-status.running {
+  background: #fef3c7;
+  color: #92400e;
+  animation: pulse-label 1.2s ease-in-out infinite;
+}
+
+.label-status.done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+@keyframes pulse-label {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.label-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.label-row {
+  margin: 0;
+}
+
+.label-row dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4f46e5;
+  margin: 0 0 4px;
+}
+
+.label-row dd {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.label-row dd.mono {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
+.label-row dd.pending {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.label-row dd .intent-pill {
+  display: inline-block;
+  background: #ecfeff;
+  color: #0e7490;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin: 2px 4px 2px 0;
+}
+
+.label-row dd .multi-yes {
+  display: inline-block;
+  background: #ede9fe;
+  color: #6d28d9;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.label-row dd a.src-link {
+  display: block;
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 0.8rem;
+  margin: 4px 0;
+}
+
+.label-row dd a.src-link:hover { text-decoration: underline; }
+
+.labels-panel.is-running {
+  border-color: #fcd34d;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2);
+}
+
+@media (max-width: 900px) {
+  .main-grid {
+    grid-template-columns: 1fr;
+  }
+  .labels-panel {
+    position: static;
+    order: -1;
+  }
 }
 
 .header {
@@ -175,13 +334,16 @@ body {
   cursor: pointer;
 }
 
-.composer button:hover { background: #4338ca; }
-.composer input:disabled,
 .composer button:disabled,
+.composer input:disabled,
 .suggestions .chip:disabled {
-  opacity: 0.55;
+  opacity: 0.65;
   cursor: not-allowed;
 }
+.composer button:not(:disabled) {
+  cursor: pointer;
+}
+.composer button:not(:disabled):hover { background: #4338ca; }
 
 .status {
   margin: 8px 0 0;
@@ -193,11 +355,11 @@ body {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 10000;
   padding: 16px;
 }
 .modal.hidden { display: none; }

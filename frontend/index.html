@@ -1,44 +1,167 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <title>Innovative Educational Chatbot</title>
+
   <link rel="stylesheet" href="/static/styles.css" />
+
 </head>
+
 <body>
+
   <div class="app">
+
     <header class="header">
+
       <span class="logo" aria-hidden="true">🎓</span>
+
       <div>
+
         <h1>Innovative Educational Chatbot</h1>
-        <p class="subtitle">Ask anything about education — admissions, any college/university, scholarships, departments, faculty, exams &amp; career guidance. Greetings and out-of-domain questions are handled politely. I detect your intent (single or multiple) and search the web for up-to-date, source-cited answers.</p>
+
+        <p class="subtitle">Ask anything about education — admissions, any college/university, scholarships, departments, faculty, exams &amp; career guidance. Your query details appear live in the panel on the right.</p>
+
       </div>
+
     </header>
 
-    <main id="chat" class="chat" aria-live="polite"></main>
 
-    <div id="suggestions" class="suggestions" aria-label="Suggested questions"></div>
 
-    <form id="form" class="composer">
-      <input id="input" type="text" placeholder="Type your message..." autocomplete="off" required />
-      <button type="submit">Send</button>
-    </form>
-    <p id="status" class="status"></p>
+    <div class="main-grid">
+
+      <section class="chat-column">
+
+        <main id="chat" class="chat" aria-live="polite"></main>
+
+
+
+        <div id="suggestions" class="suggestions" aria-label="Suggested questions"></div>
+
+
+
+        <form id="form" class="composer">
+          <input id="input" type="text" placeholder="Type your message..." autocomplete="off" required />
+          <button id="send-btn" type="submit">Send</button>
+        </form>
+
+        <p id="status" class="status"></p>
+
+      </section>
+
+
+
+      <aside class="labels-panel" id="query-labels" aria-live="polite">
+
+        <div class="labels-head">
+
+          <h2>Query insight</h2>
+
+          <span id="label-status" class="label-status idle">Waiting for query</span>
+
+        </div>
+
+        <dl class="label-list">
+
+          <div class="label-row">
+
+            <dt>User Email</dt>
+
+            <dd id="lbl-email">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Question</dt>
+
+            <dd id="lbl-question">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Intent</dt>
+
+            <dd id="lbl-intent">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Multi-intent</dt>
+
+            <dd id="lbl-multi">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Context</dt>
+
+            <dd id="lbl-context" class="mono">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Answer</dt>
+
+            <dd id="lbl-answer">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Sources</dt>
+
+            <dd id="lbl-sources">—</dd>
+
+          </div>
+
+        </dl>
+
+      </aside>
+
+    </div>
+
   </div>
+
+
 
   <div id="email-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="email-modal-title">
+
     <div class="modal-card">
+
       <h2 id="email-modal-title">Sign in with your email</h2>
-      <p class="modal-text">Enter your Gmail or email to use the chatbot. Your email is saved with each question for research logging (admin only).</p>
+
+      <p class="modal-text">Enter your Gmail or email, then click <strong>Continue</strong>. After that the <strong>Send</strong> button will work for your questions.</p>
+
       <form id="email-form">
+
         <input id="email-input" type="email" placeholder="you@gmail.com" required autocomplete="email" />
+
         <div class="modal-actions">
+
           <button type="submit">Continue</button>
+
         </div>
+
       </form>
+
     </div>
+
   </div>
+
   <script src="/static/app.js"></script>
+
 </body>
+
 </html>
+
