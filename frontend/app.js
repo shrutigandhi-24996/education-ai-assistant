@@ -3,6 +3,17 @@ const form = document.getElementById("form");
 const input = document.getElementById("input");
 const statusEl = document.getElementById("status");
 const suggestionsEl = document.getElementById("suggestions");
+const labelPanel = document.getElementById("query-labels");
+const labelStatus = document.getElementById("label-status");
+const lbl = {
+  email: document.getElementById("lbl-email"),
+  question: document.getElementById("lbl-question"),
+  intent: document.getElementById("lbl-intent"),
+  multi: document.getElementById("lbl-multi"),
+  context: document.getElementById("lbl-context"),
+  answer: document.getElementById("lbl-answer"),
+  sources: document.getElementById("lbl-sources"),
+};
 const USER_KEY = "edu_assistant_user_email";
 const LEGACY_USER_KEY = "edu_assistant_user_id";
 const SESSION_KEY = "edu_assistant_session_id";
@@ -67,6 +78,7 @@ function ensureUserEmail() {
       userId = email;
       modal.classList.add("hidden");
       setChatEnabled(true);
+      showLabelsIdle();
       resolve(email);
     }, { once: true });
   });
@@ -80,6 +92,140 @@ const SUGGESTIONS = [
   "Top universities for an MBA in the UK",
   "MIT computer science department and official website",
 ];
+
+function setLabel(el, html, pending = false) {
+  el.innerHTML = html;
+  el.classList.toggle("pending", pending);
+}
+
+function formatContext(ctx) {
+  if (!ctx || typeof ctx !== "object" || !Object.keys(ctx).length) return "—";
+  try {
+    return escapeHtml(JSON.stringify(ctx, null, 2));
+  } catch {
+    return "—";
+  }
+}
+
+function formatMultiIntent(intents, isMulti) {
+  if (!intents || !intents.length) return "—";
+  const badge = isMulti
+    ? '<span class="multi-yes">Multiple intents detected</span><br>'
+    : '<span class="multi-yes" style="background:#f1f5f9;color:#475569">Single intent</span><br>';
+  const pills = intents.map((i) => `<span class="intent-pill">${escapeHtml(i)}</span>`).join("");
+  return badge + pills;
+}
+
+function resourceIcon(type) {
+  return ({ pdf: "📄", document: "📁", page: "🌐", image: "🖼️" }[type] || "🔗");
+}
+
+function formatResourcesList(resources, sources) {
+  const parts = [];
+  if (resources && resources.length) {
+    const groups = { pdf: [], document: [], page: [], image: [] };
+    resources.forEach((r) => {
+      const t = r.type || "page";
+      (groups[t] || groups.page).push(r);
+    });
+    if (groups.pdf.length) {
+      parts.push("<strong>PDFs:</strong>");
+      groups.pdf.slice(0, 5).forEach((r) => {
+        parts.push(`<a class="src-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${resourceIcon("pdf")} ${escapeHtml(r.title || "PDF")}</a>`);
+      });
+    }
+    if (groups.document.length) {
+      parts.push("<strong>Documents:</strong>");
+      groups.document.slice(0, 3).forEach((r) => {
+        parts.push(`<a class="src-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${resourceIcon("document")} ${escapeHtml(r.title || "Document")}</a>`);
+      });
+    }
+    if (groups.page.length) {
+      parts.push("<strong>Web pages:</strong>");
+      groups.page.slice(0, 4).forEach((r) => {
+        parts.push(`<a class="src-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${resourceIcon("page")} ${escapeHtml(r.title || hostOf(r.url))}</a>`);
+      });
+    }
+    if (groups.image.length) {
+      parts.push("<strong>Images:</strong>");
+      groups.image.slice(0, 2).forEach((r) => {
+        parts.push(`<a class="src-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${resourceIcon("image")} ${escapeHtml(r.title || "Image")}</a>`);
+      });
+    }
+  }
+  if (sources && sources.length) {
+    parts.push("<strong>Links:</strong>");
+    sources.slice(0, 6).forEach((u) => {
+      parts.push(`<a class="src-link" href="${escapeHtml(u)}" target="_blank" rel="noopener">🔗 ${escapeHtml(hostOf(u))}</a>`);
+    });
+  }
+  return parts.length ? parts.join("") : "—";
+}
+
+function formatSourcesList(sources, resources) {
+  return formatResourcesList(resources, sources);
+}
+
+function showLabelsIdle() {
+  labelPanel.classList.remove("is-running");
+  labelStatus.textContent = "Waiting for query";
+  labelStatus.className = "label-status idle";
+  setLabel(lbl.email, userId || "—");
+  setLabel(lbl.question, "—");
+  setLabel(lbl.intent, "—");
+  setLabel(lbl.multi, "—");
+  setLabel(lbl.context, "—");
+  lbl.context.classList.remove("mono");
+  setLabel(lbl.answer, "—");
+  setLabel(lbl.sources, "—");
+}
+
+function showLabelsLoading(email, question) {
+  labelPanel.classList.add("is-running");
+  labelStatus.textContent = "Processing…";
+  labelStatus.className = "label-status running";
+  setLabel(lbl.email, escapeHtml(email));
+  setLabel(lbl.question, escapeHtml(question));
+  setLabel(lbl.intent, "Detecting intent…", true);
+  setLabel(lbl.multi, "Analyzing multi-intent…", true);
+  lbl.context.classList.add("mono");
+  setLabel(lbl.context, "Building context…", true);
+  setLabel(lbl.answer, "Searching the web &amp; generating answer…", true);
+  setLabel(lbl.sources, "Scanning official pages for PDFs &amp; links…", true);
+}
+
+function showLabelsResult(email, question, data) {
+  labelPanel.classList.remove("is-running");
+  labelStatus.textContent = "Complete";
+  labelStatus.className = "label-status done";
+  setLabel(lbl.email, escapeHtml(email));
+  setLabel(lbl.question, escapeHtml(question));
+  setLabel(lbl.intent, data.intent
+    ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>`
+    : "—");
+  setLabel(
+    lbl.multi,
+    formatMultiIntent(data.intents, data.is_multi_intent || (data.intents && data.intents.length > 1))
+  );
+  lbl.context.classList.add("mono");
+  setLabel(lbl.context, formatContext(data.context));
+  const answerPreview = (data.reply || "—").replace(/\s+/g, " ").slice(0, 1200);
+  setLabel(lbl.answer, escapeHtml(answerPreview));
+  setLabel(lbl.sources, formatSourcesList(data.sources, data.resources));
+}
+
+function showLabelsError(email, question, message) {
+  labelPanel.classList.remove("is-running");
+  labelStatus.textContent = "Error";
+  labelStatus.className = "label-status idle";
+  setLabel(lbl.email, escapeHtml(email));
+  setLabel(lbl.question, escapeHtml(question));
+  setLabel(lbl.intent, "—");
+  setLabel(lbl.multi, "—");
+  setLabel(lbl.context, "—");
+  setLabel(lbl.answer, escapeHtml(message));
+  setLabel(lbl.sources, "—");
+}
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -106,7 +252,7 @@ function isOfficial(url) {
   return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|\.ac\.in|\.edu\.in|\.nic\.in)$/.test(hostOf(url));
 }
 
-function addMessage(role, text, sources) {
+function addMessage(role, text, sources, resources) {
   const row = document.createElement("div");
   row.className = "message";
   const avatar = document.createElement("div");
@@ -116,14 +262,30 @@ function addMessage(role, text, sources) {
   bubble.className = "bubble";
   if (role === "bot") {
     bubble.innerHTML = formatMarkdown(text);
-    if (sources && sources.length) {
+    const hasRes = (resources && resources.length) || (sources && sources.length);
+    if (hasRes) {
       const box = document.createElement("div");
       box.className = "sources";
       const label = document.createElement("span");
       label.className = "src-label";
-      label.textContent = "Official sources & links (verify here):";
+      label.textContent = "Official PDFs, pages & sources:";
       box.appendChild(label);
-      sources.slice(0, 6).forEach((url) => {
+
+      if (resources && resources.length) {
+        resources.slice(0, 10).forEach((r) => {
+          const a = document.createElement("a");
+          const t = r.type || "page";
+          a.className = "src" + (t === "pdf" || t === "document" ? " official" : "");
+          a.href = r.url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = `${resourceIcon(t)} ${r.title || hostOf(r.url)}`;
+          box.appendChild(a);
+        });
+      }
+      const resUrls = new Set((resources || []).map((r) => r.url));
+      (sources || []).slice(0, 6).forEach((url) => {
+        if (resUrls.has(url)) return;
         const a = document.createElement("a");
         a.className = "src" + (isOfficial(url) ? " official" : "");
         a.href = url;
@@ -193,6 +355,7 @@ form.addEventListener("submit", async (e) => {
   const text = input.value.trim();
   if (!text) return;
   await ensureUserEmail();
+  showLabelsLoading(userId, text);
   addMessage("user", text);
   input.value = "";
   const typing = addTyping();
@@ -205,13 +368,17 @@ form.addEventListener("submit", async (e) => {
     const data = await res.json();
     typing.remove();
     if (!res.ok) {
-      addMessage("bot", data.detail || "Please enter your email to continue.");
+      const errMsg = data.detail || "Please enter your email to continue.";
+      showLabelsError(userId, text, errMsg);
+      addMessage("bot", errMsg);
       await ensureUserEmail();
       return;
     }
-    addMessage("bot", data.reply, data.sources);
+    showLabelsResult(userId, text, data);
+    addMessage("bot", data.reply, data.sources, data.resources);
   } catch {
     typing.remove();
+    showLabelsError(userId, text, "Could not reach the server.");
     addMessage("bot", "Sorry, I could not reach the server. Please try again in a moment.");
   }
 });
@@ -219,3 +386,4 @@ form.addEventListener("submit", async (e) => {
 renderSuggestions();
 refreshHealth();
 ensureUserEmail();
+showLabelsIdle();

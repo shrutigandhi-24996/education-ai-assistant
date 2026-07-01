@@ -58,6 +58,7 @@ class ChatResponse(BaseModel):
     needs_clarification: bool = False
     context: dict | None = None
     sources: list[str] | None = None
+    resources: list[dict] | None = None
     source: str | None = None
 
 

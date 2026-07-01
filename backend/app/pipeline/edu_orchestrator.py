@@ -33,6 +33,7 @@ from backend.app.pipeline.institution_disambiguation import (
 )
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import get_official_search_results
+from backend.app.pipeline.page_assets import harvest_official_assets
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.web_search import search_with_grounding
 
@@ -313,6 +314,15 @@ class EduOrchestrator:
             queries.append(f"{institution} admissions")
             topic = (analysis.get("topic") or "").strip()
             queries.append(f"{institution} {topic}".strip() if topic else institution)
+            low = text.lower()
+            if any(w in low for w in ("admission", "apply", "brochure", "prospectus")):
+                queries.append(f"{institution} admission brochure pdf")
+            if any(w in low for w in ("fee", "fees", "tuition")):
+                queries.append(f"{institution} fee structure pdf")
+            if "syllabus" in low or "curriculum" in low:
+                queries.append(f"{institution} syllabus pdf")
+            if "department" in low or "course" in low:
+                queries.append(f"{institution} department course details pdf")
         # The LLM's own suggestions next (often well-scoped).
         for q in analysis.get("search_queries") or []:
             if q and q not in queries:
@@ -325,35 +335,66 @@ class EduOrchestrator:
             queries.append(official_probe)
         return queries[: max(settings.edu_search_max_queries + 2, 5)]
 
-    def _ensure_links(self, reply: str, sources: list[str], institution: str = "") -> str:
-        """Always surface clickable official links for college/university answers."""
-        if not sources and institution:
+    def _ensure_links(
+        self,
+        reply: str,
+        sources: list[str],
+        institution: str = "",
+        resources: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Always surface clickable official links, PDFs, and page assets."""
+        resources = resources or []
+        if not sources and not resources and institution:
             return (
                 reply
                 + f"\n\n**Official sources:** Search \"{institution} official website\" "
                 "for the latest verified information."
             )
-        if not sources:
+        if not sources and not resources:
             return reply
+
+        lines: list[str] = [""]
+        if institution:
+            lines.append(f"**Official sources for {institution}:**")
+        else:
+            lines.append("**Official sources & documents:**")
+
+        pdfs = [r for r in resources if r.get("type") == "pdf"]
+        docs = [r for r in resources if r.get("type") == "document"]
+        pages = [r for r in resources if r.get("type") == "page"]
+        images = [r for r in resources if r.get("type") == "image"]
+
+        if pdfs:
+            lines.append("\n**📄 Official PDFs (open directly):**")
+            for r in pdfs[:6]:
+                lines.append(f"- [{r.get('title', 'PDF')}]({r['url']})")
+        if docs:
+            lines.append("\n**📁 Official documents:**")
+            for r in docs[:4]:
+                lines.append(f"- [{r.get('title', 'Document')}]({r['url']})")
+        if pages:
+            lines.append("\n**🌐 Official web pages:**")
+            for r in pages[:5]:
+                lines.append(f"- [{r.get('title', self._link_label(r['url']))}]({r['url']})")
+        if images:
+            lines.append("\n**🖼️ Informative images:**")
+            for r in images[:3]:
+                lines.append(f"- [{r.get('title', 'Image')}]({r['url']})")
 
         official = [u for u in sources if self._is_official(u)]
         ordered = official + [u for u in sources if u not in official]
-        ordered = ordered[:6]
+        extra = [u for u in ordered if u not in {r["url"] for r in resources}][:6]
+        if extra:
+            lines.append("\n**🔗 Additional official links:**")
+            for u in extra:
+                tag = " *(official)*" if self._is_official(u) else ""
+                lines.append(f"- [{self._link_label(u)}]({u}){tag}")
 
-        if institution:
-            header = f"**Official sources & links for {institution} (verify here):**"
-        else:
-            header = "**Sources / official links:**"
-
-        lines = ["", header]
-        for u in ordered:
-            tag = " *(official)*" if self._is_official(u) else ""
-            lines.append(f"- [{self._link_label(u)}]({u}){tag}")
-        return reply + "\n" + "\n".join(lines)
+        return reply + "\n".join(lines)
 
     def _gather_web_context(
         self, queries: list[str], institution: str = "", user_query: str = ""
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], list[dict[str, Any]]]:
         blocks: list[str] = []
         official: list[str] = []
         others: list[str] = []
@@ -387,9 +428,34 @@ class EduOrchestrator:
             payload = search_with_grounding(f"{institution} official website")
             for r in (payload.get("results") or [])[:3]:
                 _add_result(r)
-        # Official links first so the model and the UI surface them prominently.
-        sources = official + others
-        return "\n\n---\n\n".join(blocks), sources
+
+        # Harvest PDFs, documents, images, and relevant sub-pages from official sites.
+        resources: list[dict[str, Any]] = []
+        seed_pages = [u for u in official[:3]] or [u for u in others[:2]]
+        if seed_pages:
+            resources = harvest_official_assets(
+                seed_pages[:2], user_query or institution or queries[0], max_pages=2
+            )
+            tag_map = {"pdf": "OFFICIAL-PDF", "document": "OFFICIAL-DOC", "page": "OFFICIAL-PAGE", "image": "OFFICIAL-IMAGE"}
+            for r in resources:
+                url = r.get("url")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                rtype = r.get("type", "page")
+                tag = tag_map.get(rtype, "OFFICIAL")
+                blocks.append(
+                    f"[{tag}] {r.get('title') or url}\n"
+                    f"Type: {rtype.upper()} | From page: {r.get('page_title') or r.get('page')}\n"
+                    f"Direct link: {url}"
+                )
+                if tag.startswith("OFFICIAL"):
+                    official.append(url)
+                else:
+                    others.append(url)
+
+        sources = list(dict.fromkeys(official + others))
+        return "\n\n---\n\n".join(blocks), sources, resources
 
     def chat(self, session_id: str, message: str) -> dict[str, Any]:
         if not self.ready:
@@ -580,12 +646,13 @@ class EduOrchestrator:
         is_institution_q = self._institution_query(text, institution, session)
         force_web = is_institution_q or self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
+        resources: list[dict[str, Any]] = []
         if force_web or analysis.get("needs_web_search"):
             queries = self._build_queries(text, analysis, institution)
-            web_context, sources = self._gather_web_context(queries, institution, text)
+            web_context, sources, resources = self._gather_web_context(queries, institution, text)
 
         reply = self.llm.generate(text, analysis, web_context, session.history)
-        reply = self._ensure_links(reply, sources, institution)
+        reply = self._ensure_links(reply, sources, institution, resources)
 
         session.history.append({"role": "user", "content": text})
         session.history.append({"role": "assistant", "content": reply})
@@ -607,6 +674,7 @@ class EduOrchestrator:
             "context": context,
             "confidence": 1.0,
             "sources": sources or None,
+            "resources": resources or None,
             "source": "llm+web" if sources else "llm",
         }
 
