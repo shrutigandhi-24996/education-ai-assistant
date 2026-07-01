@@ -126,8 +126,60 @@ def search_web(query: str, max_results: int | None = None) -> list[dict]:
             continue
         results = _parse_results(html, limit)
         if results:
-            return results
-    return []
+            return _rank_results(results)
+    return _search_web_ddgs(query, limit)
+
+
+def _search_web_ddgs(query: str, limit: int) -> list[dict]:
+    """Fallback search API — more reliable on cloud hosts than HTML scraping."""
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        return []
+    try:
+        rows: list[dict] = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=limit):
+                url = r.get("href") or r.get("link") or ""
+                if not url.startswith("http"):
+                    continue
+                rows.append(
+                    {
+                        "title": r.get("title") or url,
+                        "url": url,
+                        "snippet": r.get("body") or "",
+                    }
+                )
+        return _rank_results(rows)
+    except Exception:
+        return []
+
+
+def find_official_urls_for_institution(institution: str, query: str = "") -> list[str]:
+    """Discover official college/university/school URLs for any institution worldwide."""
+    seen: set[str] = set()
+    urls: list[str] = []
+    probes = [
+        f"{institution} official website",
+        f"{institution} admissions official site",
+    ]
+    topic = query.lower()
+    if any(w in topic for w in ("fee", "fees", "tuition")):
+        probes.append(f"{institution} fee structure official")
+    if any(w in topic for w in ("syllabus", "curriculum", "course")):
+        probes.append(f"{institution} syllabus courses official")
+    if "department" in topic:
+        probes.append(f"{institution} department official")
+
+    for q in probes:
+        for r in search_web(q, max_results=6):
+            u = r.get("url") or ""
+            if u and u not in seen and (_is_official_url(u) or institution.split()[0].lower() in u.lower()):
+                seen.add(u)
+                urls.append(u)
+        if len(urls) >= 4:
+            break
+    return urls[:5]
 
 
 def fetch_page_extract(url: str, query: str, max_len: int = 900) -> str:

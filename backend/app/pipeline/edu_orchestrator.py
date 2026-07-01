@@ -35,7 +35,7 @@ from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import get_official_search_results
 from backend.app.pipeline.page_assets import harvest_official_assets
 from backend.app.pipeline.preprocessing import preprocess
-from backend.app.pipeline.web_search import search_with_grounding
+from backend.app.pipeline.web_search import find_official_urls_for_institution, search_with_grounding
 
 # Any of these signals means the answer needs LIVE, source-cited facts
 # (a specific institution anywhere in the world, or a factual lookup).
@@ -429,9 +429,23 @@ class EduOrchestrator:
             for r in (payload.get("results") or [])[:3]:
                 _add_result(r)
 
+        # Discover official domains for ANY institution (works when HTML search fails on cloud).
+        if institution:
+            for u in find_official_urls_for_institution(institution, user_query):
+                _add_result(
+                    {
+                        "url": u,
+                        "title": f"{institution} — official site",
+                        "snippet": f"Official website for {institution}.",
+                        "curated": True,
+                    }
+                )
+
         # Harvest PDFs, documents, images, and relevant sub-pages from official sites.
         resources: list[dict[str, Any]] = []
         seed_pages = [u for u in official[:3]] or [u for u in others[:2]]
+        if institution and not seed_pages:
+            seed_pages = find_official_urls_for_institution(institution, user_query)[:2]
         if seed_pages:
             resources = harvest_official_assets(
                 seed_pages[:2], user_query or institution or queries[0], max_pages=2
