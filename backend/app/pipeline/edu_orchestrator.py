@@ -39,11 +39,15 @@ from backend.app.pipeline.institution_web_resolver import (
 )
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import get_official_search_results, get_official_urls
-from backend.app.pipeline.page_assets import harvest_official_assets
+from backend.app.pipeline.page_assets import _asset_type, harvest_official_assets
 from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
-from backend.app.pipeline.site_navigator import crawl_for_syllabus_pdfs, is_syllabus_query
-from backend.app.pipeline.web_search import find_official_urls_for_institution, search_many_parallel
+from backend.app.pipeline.site_navigator import crawl_official_site, is_syllabus_query
+from backend.app.pipeline.web_search import (
+    fetch_page_extract,
+    find_official_urls_for_institution,
+    search_many_parallel,
+)
 
 # Any of these signals means the answer needs LIVE, source-cited facts
 # (a specific institution anywhere in the world, or a factual lookup).
@@ -399,6 +403,52 @@ class EduOrchestrator:
 
         return reply + "\n".join(lines)
 
+    def _ensure_syllabus_answer(
+        self,
+        reply: str,
+        resources: list[dict[str, Any]] | None,
+        institution: str,
+        user_query: str,
+    ) -> str:
+        if not is_syllabus_query(user_query):
+            return reply
+        pdfs = [r for r in (resources or []) if r.get("type") == "pdf"]
+        read_pdfs = [r for r in pdfs if r.get("has_content")]
+        if read_pdfs:
+            top = read_pdfs[0]
+            note = (
+                f"\n\n**📄 Official syllabus PDF:** [{top.get('title', 'Syllabus PDF')}]({top['url']}) "
+                "(shown inline below — answer is based on text read from this file.)"
+            )
+            if note.strip() not in reply:
+                return reply + note
+            return reply
+        if pdfs:
+            lines = ["\n\n**📄 Official syllabus PDF(s) found on the institution website:**"]
+            for r in pdfs[:3]:
+                lines.append(f"- [{r.get('title', 'Syllabus PDF')}]({r['url']})")
+            return reply + "\n".join(lines)
+        if institution:
+            syllabus_pages = [
+                u for u in get_official_urls(institution, user_query) if "syllabus" in u.lower()
+            ] or get_official_urls(institution, user_query)[:3]
+            lines = [
+                "\n\n**📄 Syllabus PDF not found automatically.** "
+                "Please open the official syllabus section on the institution website:"
+            ]
+            for u in syllabus_pages[:4]:
+                lines.append(f"- [{self._link_label(u)}]({u})")
+            return reply + "\n".join(lines)
+        return reply
+
+    def _needs_high_accuracy(self, text: str, institution: str) -> bool:
+        if is_syllabus_query(text):
+            return True
+        if not institution:
+            return False
+        low = text.lower()
+        return any(w in low for w in _FACTUAL_WORDS)
+
     def _gather_web_context(
         self, queries: list[str], institution: str = "", user_query: str = ""
     ) -> tuple[str, list[str], list[dict[str, Any]]]:
@@ -472,31 +522,59 @@ class EduOrchestrator:
                 else:
                     others.append(url)
 
-            # Deep menu navigation for syllabus PDFs (e.g. SRKI Academics → SU syllabus → sem PDF).
-            if institution and is_syllabus_query(user_query or ""):
-                nav_seeds = list(dict.fromkeys(seed_pages + get_official_urls(institution, user_query)))
-                nav_pdfs = crawl_for_syllabus_pdfs(nav_seeds, user_query or institution)
+            # Crawl official menus/sub-menus for PDFs and syllabus pages (all institution queries).
+            if institution:
+                nav_seeds = list(
+                    dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:4])
+                )
+                crawl = crawl_official_site(nav_seeds, user_query or institution, institution)
                 existing = {r.get("url") for r in resources}
-                for r in nav_pdfs:
+                for r in crawl.get("pdfs", []) + crawl.get("pages", []):
                     url = r.get("url")
                     if not url or url in seen or url in existing:
                         continue
                     seen.add(url)
                     existing.add(url)
                     resources.append(r)
-                    blocks.append(
-                        f"[OFFICIAL-PDF] {r.get('title') or url}\n"
-                        f"Type: PDF | Found via official site navigation\n"
-                        f"Direct link: {url}"
-                    )
-                    official.append(url)
+                    rtype = r.get("type", "page")
+                    if rtype == "pdf":
+                        blocks.append(
+                            f"[OFFICIAL-PDF] {r.get('title') or url}\n"
+                            f"Type: PDF | Found via official site menu navigation\n"
+                            f"Direct link: {url}"
+                        )
+                        official.append(url)
+                    else:
+                        blocks.append(
+                            f"[OFFICIAL-PAGE] {r.get('title') or url}\n"
+                            f"Relevant official sub-page from site navigation\n"
+                            f"Direct link: {url}"
+                        )
+                        official.append(url)
+
+                # Fetch readable text from top official pages for accurate answers.
+                extract_urls: list[str] = []
+                for u in official[:3]:
+                    if u not in extract_urls and _asset_type(u) != "pdf":
+                        extract_urls.append(u)
+                for p in crawl.get("pages", [])[: settings.edu_official_page_extracts]:
+                    u = p.get("url", "")
+                    if u and u not in extract_urls:
+                        extract_urls.append(u)
+                for page_url in extract_urls[: settings.edu_official_page_extracts + 1]:
+                    extract = fetch_page_extract(page_url, user_query or institution, max_len=1400)
+                    if extract:
+                        blocks.append(
+                            f"[OFFICIAL-PAGE-CONTENT] {page_url}\n"
+                            f"Extracted from official website page (use for verified facts):\n"
+                            f"{extract}\n"
+                            f"Source: {page_url}"
+                        )
 
             # Read PDF text so answers can be grounded in official documents.
             if resources:
                 query_for_pdf = user_query or institution or (queries[0] if queries else "")
-                max_pdfs = 2 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
-                if not settings.edu_fast_mode:
-                    max_pdfs = max(max_pdfs, 2)
+                max_pdfs = 3 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
                 resources = enrich_pdf_resources(resources, query_for_pdf, max_pdfs=max_pdfs)
                 for pdf_block in format_pdf_context_blocks(resources):
                     blocks.append(pdf_block)
@@ -765,8 +843,15 @@ class EduOrchestrator:
             queries = self._build_queries(text, analysis, institution)
             web_context, sources, resources = self._gather_web_context(queries, institution, text)
 
-        reply = self.llm.generate(text, analysis, web_context, session.history)
+        reply = self.llm.generate(
+            text,
+            analysis,
+            web_context,
+            session.history,
+            high_accuracy=self._needs_high_accuracy(text, institution),
+        )
         reply = self._ensure_links(reply, sources, institution, resources)
+        reply = self._ensure_syllabus_answer(reply, resources, institution, text)
 
         session.history.append({"role": "user", "content": text})
         session.history.append({"role": "assistant", "content": reply})

@@ -78,6 +78,12 @@ ANSWER FORMAT:
 - Use headings and bullet points where helpful.
 - Separate summary, key facts from PDF/official sources, and next steps.
 
+SYLLABUS ANSWERS (critical):
+- When the user asks for a syllabus, structure the reply as: **Course & semester** → **Subjects/units/credits** (only from PDF/page content) → **Official PDF link**.
+- Use ONLY subjects, units, and credits found in [OFFICIAL-PDF-CONTENT] or [OFFICIAL-PAGE-CONTENT]. Never invent subject names.
+- If no PDF text is available but official syllabus pages exist, say so clearly and direct the user to the official syllabus menu link.
+- If BSc IT is requested but only a related CS syllabus PDF exists on the site, say that explicitly and still cite that official PDF.
+
 SCOPE: If the question is outside education, politely decline and steer back to education topics."""
 
 
@@ -165,6 +171,7 @@ class LLMClient:
         analysis: dict[str, Any],
         web_context: str,
         history: list[dict[str, str]] | None = None,
+        high_accuracy: bool = False,
     ) -> str:
         role = analysis.get("user_role", "student")
         intents = ", ".join(analysis.get("intents", []) or [])
@@ -179,6 +186,15 @@ class LLMClient:
         if history:
             msgs.extend(history[-settings.edu_history_turns :])
         msgs.append({"role": "user", "content": user_block})
-        model = settings.groq_fast_model if settings.edu_fast_mode else settings.groq_model
-        max_tok = 600 if settings.edu_fast_mode else settings.llm_max_tokens
+        if high_accuracy or is_syllabus_in_context(web_context):
+            model = settings.groq_model
+            max_tok = 900
+        else:
+            model = settings.groq_fast_model if settings.edu_fast_mode else settings.groq_model
+            max_tok = 600 if settings.edu_fast_mode else settings.llm_max_tokens
         return self._chat(msgs, model=model, max_tokens=max_tok).strip()
+
+
+def is_syllabus_in_context(web_context: str) -> bool:
+    low = (web_context or "").lower()
+    return "syllabus" in low or "official-pdf-content" in low

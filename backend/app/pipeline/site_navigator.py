@@ -1,11 +1,11 @@
-"""Navigate official college websites (menus/sub-pages) to find syllabus PDFs."""
+"""Navigate official college websites (menus/sub-menus) to find PDFs and pages."""
 
 from __future__ import annotations
 
+import heapq
 import re
-from collections import deque
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from backend.app.config import settings
 from backend.app.pipeline.page_assets import _asset_type, _clean_text, _HREF_RE
@@ -18,7 +18,14 @@ _SYLLABUS_WORDS = (
 _NAV_WORDS = (
     "academics", "academic", "department", "programme", "program", "course",
     "su syllabus", "syllabus", "upload", "courses-offered", "su-syllabus",
+    "menu", "study", "learning",
 )
+_TOPIC_WORDS = {
+    "syllabus": _SYLLABUS_WORDS,
+    "admission": ("admission", "admissions", "apply", "eligibility", "prospectus"),
+    "fee": ("fee", "fees", "tuition", "charges"),
+    "exam": ("exam", "result", "timetable", "notification"),
+}
 _PROGRAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bbscit\b", re.I), "it"),
     (re.compile(r"\bb\.?\s*sc\.?\s*(?:it|information\s+technology)\b", re.I), "it"),
@@ -31,15 +38,26 @@ _PROGRAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bbca\b", re.I), "bca"),
     (re.compile(r"\bb\.?\s*tech\b", re.I), "btech"),
 ]
+_PROGRAM_URL_HINTS: dict[str, tuple[str, ...]] = {
+    "it": ("bsc_it", "bscit", "informationtechnology", "information-technology", "_it_", " it "),
+    "cs": ("bsc_cs", "bsccs", "computerscience", "computer-science", "_cs_", " cs "),
+    "mb": ("microbiology", "_mb_", " mb "),
+    "bt": ("biotechnology", "_bt_", " bt "),
+    "bsc": ("bsc", "b.sc", "bachelor"),
+}
 _SEM_RE = re.compile(r"\bsem(?:ester)?[\s\-]*(\d+)\b", re.I)
 _YEAR_RE = re.compile(r"\b(20\d{2})[\s\-/]+(?:20)?(\d{2})\b")
+_MENU_BLOCK = re.compile(
+    r"<(?:nav|header|aside|div|ul)[^>]*(?:class|id)=[\"'][^\"']*(?:menu|nav|sidebar|academic)[^\"']*[\"'][^>]*>(.*?)</(?:nav|header|aside|div|ul)>",
+    re.I | re.S,
+)
 
 
 def parse_syllabus_intent(query: str) -> dict[str, Any]:
     low = query.lower()
     is_syllabus = "syllabus" in low or (
         bool(_SEM_RE.search(query))
-        and any(w in low for w in ("course", "bsc", "b.sc", "m.sc", "program", "subject", "sem"))
+        and any(w in low for w in ("course", "bsc", "b.sc", "m.sc", "program", "subject", "sem", "it", "cs"))
     )
     programs: list[str] = []
     for pat, slug in _PROGRAM_PATTERNS:
@@ -61,6 +79,15 @@ def is_syllabus_query(query: str) -> bool:
     return bool(parse_syllabus_intent(query).get("is_syllabus"))
 
 
+def _query_topics(query: str) -> list[str]:
+    low = query.lower()
+    topics = ["general"]
+    for topic, words in _TOPIC_WORDS.items():
+        if any(w in low for w in words):
+            topics.append(topic)
+    return topics
+
+
 def _same_site(url: str, root_host: str) -> bool:
     try:
         return urlparse(url).netloc.lower().replace("www.", "") == root_host
@@ -68,84 +95,154 @@ def _same_site(url: str, root_host: str) -> bool:
         return False
 
 
-def _score_nav_link(url: str, label: str, intent: dict[str, Any], depth: int) -> int:
-    blob = f"{url} {label}".lower().replace(" ", "")
-    score = max(0, 10 - depth * 2)
+def _score_nav_link(url: str, label: str, intent: dict[str, Any], depth: int, topics: list[str]) -> int:
+    blob = f"{url} {label}".lower()
+    blob_ns = blob.replace(" ", "").replace("_", "").replace("-", "")
+    score = max(0, 14 - depth * 2)
     if _asset_type(url) == "pdf":
-        score += 12
+        score += 14
+    for topic in topics:
+        words = _TOPIC_WORDS.get(topic, ())
+        for w in words:
+            if w in blob:
+                score += 5
     for w in _SYLLABUS_WORDS:
-        if w.replace(" ", "") in blob or w in blob:
+        if w.replace(" ", "") in blob_ns or w in blob:
             score += 4
     for w in _NAV_WORDS:
-        if w.replace(" ", "") in blob or w in blob:
-            score += 2
+        if w.replace(" ", "") in blob_ns or w in blob:
+            score += 3
     for prog in intent.get("programs") or []:
-        if prog in blob or prog.replace("bsc", "b.sc") in blob:
-            score += 6
+        if prog in blob_ns or prog in blob:
+            score += 7
+        for hint in _PROGRAM_URL_HINTS.get(prog, ()):
+            if hint.replace(" ", "") in blob_ns:
+                score += 8
+    if "it" in (intent.get("programs") or []) and ("cs" in blob_ns or "computer" in blob):
+        score += 4
     sem = intent.get("semester")
     if sem:
-        sem_hits = (f"sem{sem}", f"sem-{sem}", f"semester{sem}", f"semester-{sem}")
-        if any(h in blob for h in sem_hits):
-            score += 10
+        sem_hits = (f"sem{sem}", f"sem-{sem}", f"semester{sem}", f"semester-{sem}", f"sem_{sem}")
+        if any(h in blob_ns for h in sem_hits):
+            score += 12
     year = intent.get("year")
-    if year and year.replace("-", "")[:6] in blob.replace("-", ""):
-        score += 4
-    if "upload" in blob and _asset_type(url) == "pdf":
+    if year and year.replace("-", "")[:6] in blob_ns.replace("-", ""):
         score += 5
+    if "upload" in blob and _asset_type(url) == "pdf":
+        score += 6
     if "nep" in blob:
-        score += 3
+        score += 4
+    if "/pages/" in url or "/academic" in url:
+        score += 2
     return score
 
 
-def _extract_links(html: str, page_url: str) -> list[tuple[str, str]]:
+def _extract_links(html: str, page_url: str, nav_bonus: bool = False) -> list[tuple[str, str]]:
     items: list[tuple[str, str]] = []
-    for href_raw, inner in _HREF_RE.findall(html):
-        href = href_raw.strip()
-        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
-            continue
-        from urllib.parse import urljoin
-
-        full = urljoin(page_url, href)
-        if not full.startswith("http"):
-            continue
-        label = _clean_text(inner) or full.rsplit("/", 1)[-1]
-        items.append((full, label))
+    blocks = [html]
+    if nav_bonus:
+        for block in _MENU_BLOCK.findall(html):
+            blocks.append(block)
+    seen: set[tuple[str, str]] = set()
+    for block in blocks:
+        for href_raw, inner in _HREF_RE.findall(block):
+            href = href_raw.strip()
+            if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+                continue
+            full = urljoin(page_url, href)
+            if not full.startswith("http"):
+                continue
+            label = _clean_text(inner) or full.rsplit("/", 1)[-1]
+            key = (full, label)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append((full, label))
     return items
 
 
-def crawl_for_syllabus_pdfs(
+def _min_pdf_score(intent: dict[str, Any]) -> int:
+    if intent.get("is_syllabus") and intent.get("semester"):
+        return 8
+    if intent.get("is_syllabus"):
+        return 10
+    return 12
+
+
+def _crawl_limits(is_syllabus: bool) -> tuple[int, int]:
+    if is_syllabus:
+        return (14, 5)
+    if settings.edu_fast_mode:
+        return (max(8, settings.edu_site_nav_max_pages // 2), 3)
+    return (settings.edu_site_nav_max_pages, settings.edu_site_nav_max_depth)
+
+
+def _search_pdf_fallbacks(seed_urls: list[str], query: str, intent: dict[str, Any]) -> list[dict[str, Any]]:
+    if not seed_urls:
+        return []
+    host = urlparse(seed_urls[0]).netloc.replace("www.", "")
+    prog = " ".join(intent.get("programs") or ["syllabus"])
+    sem = f"sem {intent['semester']}" if intent.get("semester") else ""
+    year = intent.get("year") or "2024-25"
+    queries = [
+        f"site:{host} {prog} {sem} {year} syllabus pdf".strip(),
+        f"site:{host} {query} syllabus pdf".strip(),
+        f"site:{host} upload {prog} sem pdf".strip(),
+    ]
+    pdfs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for q in queries:
+        for r in search_web(q, max_results=5):
+            u = r.get("url") or ""
+            if ".pdf" not in u.lower() or u in seen:
+                continue
+            seen.add(u)
+            label = r.get("title") or u.rsplit("/", 1)[-1]
+            score = _score_nav_link(u, label, intent, 0, _query_topics(query)) + 8
+            pdfs.append(
+                {
+                    "type": "pdf",
+                    "url": u,
+                    "title": label[:200],
+                    "score": score,
+                    "source": "search",
+                }
+            )
+    return pdfs
+
+
+def crawl_official_site(
     seed_urls: list[str],
     query: str,
-    max_pages: int | None = None,
-    max_depth: int | None = None,
-) -> list[dict[str, Any]]:
-    """Walk official site menus (BFS) and search for matching syllabus PDFs."""
+    institution: str = "",
+) -> dict[str, list[dict[str, Any]]]:
+    """Priority crawl of menus/sub-menus for official PDFs and relevant pages."""
+    _ = institution
     intent = parse_syllabus_intent(query)
-    if not intent["is_syllabus"]:
-        return []
-
-    max_pages = max_pages or (6 if settings.edu_fast_mode else settings.edu_site_nav_max_pages)
-    max_depth = max_depth or (2 if settings.edu_fast_mode else settings.edu_site_nav_max_depth)
+    topics = _query_topics(query)
+    max_pages, max_depth = _crawl_limits(intent["is_syllabus"])
+    min_pdf = _min_pdf_score(intent)
 
     pdfs: list[dict[str, Any]] = []
+    pages: list[dict[str, Any]] = []
     visited: set[str] = set()
-    queue: deque[tuple[str, int]] = deque()
+    heap: list[tuple[int, int, str]] = []
 
     for url in seed_urls:
-        if url and url not in visited:
-            queue.append((url, 0))
+        if url:
+            heapq.heappush(heap, (-120, 0, url))
 
     pages_scanned = 0
-    while queue and pages_scanned < max_pages:
-        url, depth = queue.popleft()
+    while heap and pages_scanned < max_pages:
+        _, depth, url = heapq.heappop(heap)
         if url in visited or depth > max_depth:
             continue
         visited.add(url)
 
         if _asset_type(url) == "pdf":
             label = url.rsplit("/", 1)[-1]
-            score = _score_nav_link(url, label, intent, depth)
-            if score >= 12:
+            score = _score_nav_link(url, label, intent, depth, topics)
+            if score >= min_pdf:
                 pdfs.append(
                     {
                         "type": "pdf",
@@ -158,7 +255,7 @@ def crawl_for_syllabus_pdfs(
             continue
 
         try:
-            html = _http_get(url, timeout=8 if settings.edu_fast_mode else 12)
+            html = _http_get(url, timeout=10 if intent["is_syllabus"] else 8)
         except Exception:
             continue
         if not html or len(html) < 100:
@@ -166,9 +263,9 @@ def crawl_for_syllabus_pdfs(
         pages_scanned += 1
 
         root_host = urlparse(url).netloc.lower().replace("www.", "")
-        for link, label in _extract_links(html, url):
-            score = _score_nav_link(link, label, intent, depth + 1)
-            if _asset_type(link) == "pdf" and score >= 12:
+        for link, label in _extract_links(html, url, nav_bonus=True):
+            score = _score_nav_link(link, label, intent, depth + 1, topics)
+            if _asset_type(link) == "pdf" and score >= min_pdf:
                 pdfs.append(
                     {
                         "type": "pdf",
@@ -179,39 +276,45 @@ def crawl_for_syllabus_pdfs(
                         "source": "site_nav",
                     }
                 )
-            elif depth + 1 <= max_depth and score >= 4 and _same_site(link, root_host):
-                if link not in visited:
-                    queue.append((link, depth + 1))
+            elif _asset_type(link) == "page" and score >= 6 and _same_site(link, root_host):
+                pages.append(
+                    {
+                        "type": "page",
+                        "url": link,
+                        "title": label[:200] or link.rsplit("/", 1)[-1],
+                        "score": score,
+                        "source": "site_nav",
+                    }
+                )
+                if depth + 1 <= max_depth and link not in visited:
+                    heapq.heappush(heap, (-score, depth + 1, link))
 
-    if len(pdfs) < 2 and seed_urls:
-        host = urlparse(seed_urls[0]).netloc.replace("www.", "")
-        prog = " ".join(intent.get("programs") or ["syllabus"])
-        sem = f"sem {intent['semester']}" if intent.get("semester") else ""
-        year = intent.get("year") or "2024-25"
-        ddg_q = f"site:{host} {prog} {sem} {year} syllabus pdf".strip()
-        for r in search_web(ddg_q, max_results=5):
-            u = r.get("url") or ""
-            if ".pdf" not in u.lower():
-                continue
-            label = r.get("title") or u.rsplit("/", 1)[-1]
-            score = _score_nav_link(u, label, intent, 0) + 6
-            pdfs.append(
-                {
-                    "type": "pdf",
-                    "url": u,
-                    "title": label[:200],
-                    "score": score,
-                    "source": "search",
-                }
-            )
+    if len(pdfs) < 3:
+        pdfs.extend(_search_pdf_fallbacks(seed_urls, query, intent))
 
     pdfs.sort(key=lambda x: x.get("score", 0), reverse=True)
-    seen_urls: set[str] = set()
-    out: list[dict[str, Any]] = []
-    for item in pdfs:
-        u = item.get("url", "")
-        if not u or u in seen_urls:
-            continue
-        seen_urls.add(u)
-        out.append(item)
-    return out[:6]
+    pages.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen_u: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for item in items:
+            u = item.get("url", "")
+            if not u or u in seen_u:
+                continue
+            seen_u.add(u)
+            out.append(item)
+        return out
+
+    return {"pdfs": _dedupe(pdfs)[:8], "pages": _dedupe(pages)[:8]}
+
+
+def crawl_for_syllabus_pdfs(
+    seed_urls: list[str],
+    query: str,
+    max_pages: int | None = None,
+    max_depth: int | None = None,
+) -> list[dict[str, Any]]:
+    """Backward-compatible wrapper."""
+    _ = max_pages, max_depth
+    return crawl_official_site(seed_urls, query).get("pdfs", [])

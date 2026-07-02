@@ -86,10 +86,11 @@ class Settings(BaseSettings):
     edu_history_turns: int = 4
     edu_search_max_queries: int = 2
     edu_fast_mode: bool = True
-    edu_asset_harvest_pages: int = 1
-    edu_pdf_max_read: int = 1
-    edu_site_nav_max_pages: int = 8
-    edu_site_nav_max_depth: int = 3
+    edu_asset_harvest_pages: int = 3
+    edu_pdf_max_read: int = 2
+    edu_site_nav_max_pages: int = 14
+    edu_site_nav_max_depth: int = 5
+    edu_official_page_extracts: int = 2
 
     # --- Conversation logging (live database) ---
     conversation_logging_enabled: bool = True
