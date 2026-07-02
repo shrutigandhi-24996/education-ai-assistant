@@ -23,6 +23,15 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
     "Shree Ramkrishna Institute of Computer Education and Applied Sciences": {
         "default": ["https://www.srki.ac.in/"],
         "admission": ["https://www.srki.ac.in/pages/admission-corner/"],
+        "syllabus": [
+            "https://www.srki.ac.in/pages/su-syllabus/",
+            "https://www.srki.ac.in/pages/courses-offered/",
+            "https://www.srki.ac.in/pages/srki-constituent-college-of-sarvajanik-university-/",
+        ],
+        "academics": [
+            "https://www.srki.ac.in/pages/su-syllabus/",
+            "https://www.srki.ac.in/pages/courses-offered/",
+        ],
     },
     "Gujarat Technological University": {
         "default": ["https://www.gtu.ac.in/"],
@@ -37,6 +46,8 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
 _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "admission": ("admission", "admissions", "apply", "application", "eligibility", "2026", "2025"),
     "contact": ("contact", "address", "phone", "email"),
+    "syllabus": ("syllabus", "curriculum", "sem", "semester", "scheme", "regulation", "nep", "course"),
+    "academics": ("academic", "academics", "department", "program", "programme", "faculty"),
 }
 
 

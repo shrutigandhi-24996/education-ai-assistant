@@ -23,6 +23,7 @@ from backend.app.disambiguation import (
     reconcile_resolutions,
     resolve_from_reply,
 )
+from backend.app.pipeline.clarification_ui import build_clarification_options
 from backend.app.pipeline.institution_disambiguation import (
     detect_institution,
     expand_institution_aliases,
@@ -31,11 +32,17 @@ from backend.app.pipeline.institution_disambiguation import (
     resolve_from_history,
     resolve_institution_from_reply,
 )
+from backend.app.pipeline.institution_web_resolver import (
+    find_unknown_institution_tokens,
+    format_web_institution_clarification,
+    search_institution_by_short_name,
+)
 from backend.app.pipeline.llm_client import LLMClient
-from backend.app.pipeline.official_links import get_official_search_results
+from backend.app.pipeline.official_links import get_official_search_results, get_official_urls
 from backend.app.pipeline.page_assets import harvest_official_assets
 from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
+from backend.app.pipeline.site_navigator import crawl_for_syllabus_pdfs, is_syllabus_query
 from backend.app.pipeline.web_search import find_official_urls_for_institution, search_many_parallel
 
 # Any of these signals means the answer needs LIVE, source-cited facts
@@ -142,6 +149,7 @@ class EduSession:
         self.pending_query: str | None = None
         self.pending_institution_name: bool = False
         self.pending_institution_query: str | None = None
+        self.pending_web_institution: dict[str, Any] = {}
         self.last_institution: str | None = None
 
 
@@ -327,7 +335,12 @@ class EduOrchestrator:
         for q in analysis.get("search_queries") or []:
             if q and q not in queries:
                 queries.append(q)
-        return queries[: settings.edu_search_max_queries]
+        if institution and is_syllabus_query(text):
+            queries.insert(0, f"{institution} syllabus pdf official")
+        limit = settings.edu_search_max_queries
+        if institution and is_syllabus_query(text):
+            limit = max(limit, 3)
+        return queries[:limit]
 
     def _ensure_links(
         self,
@@ -459,10 +472,31 @@ class EduOrchestrator:
                 else:
                     others.append(url)
 
+            # Deep menu navigation for syllabus PDFs (e.g. SRKI Academics → SU syllabus → sem PDF).
+            if institution and is_syllabus_query(user_query or ""):
+                nav_seeds = list(dict.fromkeys(seed_pages + get_official_urls(institution, user_query)))
+                nav_pdfs = crawl_for_syllabus_pdfs(nav_seeds, user_query or institution)
+                existing = {r.get("url") for r in resources}
+                for r in nav_pdfs:
+                    url = r.get("url")
+                    if not url or url in seen or url in existing:
+                        continue
+                    seen.add(url)
+                    existing.add(url)
+                    resources.append(r)
+                    blocks.append(
+                        f"[OFFICIAL-PDF] {r.get('title') or url}\n"
+                        f"Type: PDF | Found via official site navigation\n"
+                        f"Direct link: {url}"
+                    )
+                    official.append(url)
+
             # Read PDF text so answers can be grounded in official documents.
             if resources:
                 query_for_pdf = user_query or institution or (queries[0] if queries else "")
-                max_pdfs = settings.edu_pdf_max_read if settings.edu_fast_mode else 2
+                max_pdfs = 2 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
+                if not settings.edu_fast_mode:
+                    max_pdfs = max(max_pdfs, 2)
                 resources = enrich_pdf_resources(resources, query_for_pdf, max_pdfs=max_pdfs)
                 for pdf_block in format_pdf_context_blocks(resources):
                     blocks.append(pdf_block)
@@ -519,6 +553,36 @@ class EduOrchestrator:
                 "source": "clarification",
             }
 
+        # --- Web-resolved institution follow-up (unknown short name from search) ---
+        if session.pending_web_institution:
+            token = session.pending_web_institution.get("token", "")
+            options = session.pending_web_institution.get("options") or []
+            needed = {token: options} if token and options else {}
+            resolved = resolve_institution_from_reply(text, needed)
+            if not resolved:
+                reply = format_web_institution_clarification(token, options)
+                return {
+                    "reply": reply,
+                    "intent": "clarification",
+                    "intents": ["institution_web_clarification"],
+                    "needs_clarification": True,
+                    "clarification_options": build_clarification_options(
+                        web_token=token, web_options=options
+                    ),
+                    "context": {"Topic": ["web_institution_clarification"]},
+                    "source": "clarification",
+                }
+            session.resolved_entities.update(resolved)
+            session.last_institution = next(iter(resolved.values()))
+            session.pending_web_institution = {}
+            text = session.pending_query or text
+            session.pending_query = None
+            text = expand_institution_aliases(
+                apply_resolutions(text, session.resolved_entities),
+                session.resolved_entities,
+            )
+            return self._answer_resolved(session, text)
+
         # --- Disambiguation follow-up (user picked an option) ---
         if session.pending_institution or session.pending_course:
             saved_inst = dict(session.pending_institution)
@@ -532,6 +596,10 @@ class EduOrchestrator:
                     "reply": reply or "Please pick one of the numbered options so I can continue.",
                     "intent": "clarification",
                     "needs_clarification": True,
+                    "clarification_options": build_clarification_options(
+                        institution_needed=saved_inst or None,
+                        course_needed=saved_course or None,
+                    ),
                     "source": "clarification",
                 }
             session.resolved_entities.update(inst_resolved)
@@ -553,6 +621,34 @@ class EduOrchestrator:
             apply_resolutions(text, session.resolved_entities),
             session.resolved_entities,
         )
+
+        # --- Unknown short name: search the web to identify the institution ---
+        if not detect_institution(text, session.resolved_entities):
+            unknown_tokens = find_unknown_institution_tokens(text, session.resolved_entities)
+            if unknown_tokens:
+                token = unknown_tokens[0]
+                candidates = search_institution_by_short_name(token, text)
+                if len(candidates) == 1:
+                    session.resolved_entities[token] = candidates[0]["resolution"]
+                    session.last_institution = candidates[0]["resolution"]
+                    text = expand_institution_aliases(text, session.resolved_entities)
+                elif len(candidates) > 1:
+                    session.pending_web_institution = {"token": token, "options": candidates}
+                    session.pending_query = text
+                    reply = format_web_institution_clarification(token, candidates)
+                    session.history.append({"role": "user", "content": text})
+                    session.history.append({"role": "assistant", "content": reply})
+                    return {
+                        "reply": reply,
+                        "intent": "clarification",
+                        "intents": ["institution_web_clarification"],
+                        "needs_clarification": True,
+                        "clarification_options": build_clarification_options(
+                            web_token=token, web_options=candidates
+                        ),
+                        "context": {"Topic": ["web_institution_clarification"]},
+                        "source": "web_institution_lookup",
+                    }
 
         # --- Detect ambiguous abbreviations (homographs) ---
         inst_ambiguous = find_ambiguous_institutions(text, session.resolved_entities)
@@ -579,7 +675,12 @@ class EduOrchestrator:
             return {
                 "reply": "\n\n".join(parts),
                 "intent": "clarification",
+                "intents": ["clarification"],
                 "needs_clarification": True,
+                "clarification_options": build_clarification_options(
+                    institution_needed=inst_ambiguous or None,
+                    course_needed=course_ambiguous or None,
+                ),
                 "context": {
                     "PendingDisambiguation": list(inst_ambiguous.keys()) + list(course_ambiguous.keys())
                 },

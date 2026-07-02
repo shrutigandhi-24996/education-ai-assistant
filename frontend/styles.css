@@ -329,6 +329,29 @@ body {
 }
 .suggestions .chip:hover { background: #eef2ff; border-color: #c7d2fe; }
 
+.clarify-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #c7d2fe;
+}
+.clarify-label {
+  width: 100%;
+  font-size: 0.78rem;
+  color: #4338ca;
+  font-weight: 600;
+}
+.clarify-chip {
+  border-color: #a5b4fc;
+  background: #eef2ff;
+  color: #3730a3;
+  text-align: left;
+  max-width: 100%;
+}
+.clarify-chip:hover { background: #e0e7ff; border-color: #818cf8; }
+
 /* Source chips under a bot reply */
 .sources {
   display: flex;

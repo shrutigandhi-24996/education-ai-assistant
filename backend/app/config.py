@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     edu_fast_mode: bool = True
     edu_asset_harvest_pages: int = 1
     edu_pdf_max_read: int = 1
+    edu_site_nav_max_pages: int = 8
+    edu_site_nav_max_depth: int = 3
 
     # --- Conversation logging (live database) ---
     conversation_logging_enabled: bool = True

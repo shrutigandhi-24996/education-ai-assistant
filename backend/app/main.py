@@ -56,6 +56,7 @@ class ChatResponse(BaseModel):
     role: str | None = None
     confidence: float | None = None
     needs_clarification: bool = False
+    clarification_options: list[dict] | None = None
     context: dict | None = None
     sources: list[str] | None = None
     resources: list[dict] | None = None

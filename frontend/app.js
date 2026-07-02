@@ -447,7 +447,29 @@ function createPdfViewer(pdf) {
   return wrap;
 }
 
-function addMessage(role, text, sources, resources) {
+function renderClarificationOptions(options, bubble) {
+  if (!options || !options.length) return;
+  const box = document.createElement("div");
+  box.className = "clarify-options";
+  const label = document.createElement("span");
+  label.className = "clarify-label";
+  label.textContent = "Tap to clarify your meaning:";
+  box.appendChild(label);
+  options.forEach((opt) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip clarify-chip";
+    btn.textContent = opt.label || opt.resolution || opt.value;
+    btn.addEventListener("click", () => {
+      input.value = opt.resolution || opt.value || opt.label;
+      form.requestSubmit();
+    });
+    box.appendChild(btn);
+  });
+  bubble.appendChild(box);
+}
+
+function addMessage(role, text, sources, resources, clarificationOptions) {
   const row = document.createElement("div");
   row.className = "message";
   const avatar = document.createElement("div");
@@ -526,6 +548,9 @@ function addMessage(role, text, sources, resources) {
         box.appendChild(a);
       });
       bubble.appendChild(box);
+    }
+    if (clarificationOptions && clarificationOptions.length) {
+      renderClarificationOptions(clarificationOptions, bubble);
     }
   } else {
     bubble.textContent = text;
@@ -611,7 +636,7 @@ form.addEventListener("submit", async (e) => {
       return;
     }
     showLabelsResult(userId, text, data);
-    addMessage("bot", data.reply, data.sources, data.resources);
+    addMessage("bot", data.reply, data.sources, data.resources, data.clarification_options);
   } catch {
     typing.remove();
     showLabelsError(userId, text, "Could not reach the server.");
