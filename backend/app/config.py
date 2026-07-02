@@ -54,9 +54,9 @@ class Settings(BaseSettings):
 
     # --- External web search (non-SRKI institutions / out-of-scope) ---
     external_search_enabled: bool = True
-    external_search_max_results: int = 5
-    external_search_fetch_pages: int = 2
-    external_search_timeout: int = 15
+    external_search_max_results: int = 3
+    external_search_fetch_pages: int = 0
+    external_search_timeout: int = 8
     external_search_cache_ttl_hours: int = 12
     external_search_cache_dir: Path = ROOT / "data" / "search_cache"
     # Institutions explicitly treated as external (web-search routed)
@@ -81,10 +81,12 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     groq_fast_model: str = "llama-3.1-8b-instant"
     llm_temperature: float = 0.3
-    llm_max_tokens: int = 1000
-    llm_request_timeout: int = 40
-    edu_history_turns: int = 6
-    edu_search_max_queries: int = 3
+    llm_max_tokens: int = 700
+    llm_request_timeout: int = 25
+    edu_history_turns: int = 4
+    edu_search_max_queries: int = 2
+    edu_fast_mode: bool = True
+    edu_asset_harvest_pages: int = 1
 
     # --- Conversation logging (live database) ---
     conversation_logging_enabled: bool = True

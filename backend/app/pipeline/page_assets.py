@@ -7,6 +7,8 @@ from html import unescape
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from backend.app.config import settings
+
 from backend.app.pipeline.web_search import _http_get, _is_official_url
 
 _FILE_PDF = re.compile(r"\.pdf(\?|#|$)", re.I)
@@ -117,7 +119,7 @@ def fetch_page_assets(page_url: str, query: str, max_items: int = 10) -> list[di
             }
         ]
     try:
-        html = _http_get(page_url, timeout=12)
+        html = _http_get(page_url, timeout=6 if settings.edu_fast_mode else 12)
     except Exception:
         return []
     if not html or len(html) < 100:
@@ -134,7 +136,7 @@ def harvest_official_assets(seed_urls: list[str], query: str, max_pages: int = 3
     for url in seed_urls:
         if pages_scanned >= max_pages:
             break
-        batch = fetch_page_assets(url, query, max_items=8)
+        batch = fetch_page_assets(url, query, max_items=5 if settings.edu_fast_mode else 8)
         if _asset_type(url) == "page":
             pages_scanned += 1
         for item in batch:
@@ -145,4 +147,4 @@ def harvest_official_assets(seed_urls: list[str], query: str, max_pages: int = 3
 
     type_order = {"pdf": 0, "document": 1, "page": 2, "image": 3}
     all_items.sort(key=lambda x: (type_order.get(x["type"], 9), -x["score"]))
-    return all_items[:10]
+    return all_items[:6 if settings.edu_fast_mode else 10]

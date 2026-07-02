@@ -35,7 +35,7 @@ from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import get_official_search_results
 from backend.app.pipeline.page_assets import harvest_official_assets
 from backend.app.pipeline.preprocessing import preprocess
-from backend.app.pipeline.web_search import find_official_urls_for_institution, search_with_grounding
+from backend.app.pipeline.web_search import find_official_urls_for_institution, search_many_parallel
 
 # Any of these signals means the answer needs LIVE, source-cited facts
 # (a specific institution anywhere in the world, or a factual lookup).
@@ -308,32 +308,25 @@ class EduOrchestrator:
         self, text: str, analysis: dict[str, Any], institution: str = ""
     ) -> list[str]:
         queries: list[str] = []
-        # When a specific institution is named, probe its official website first.
+        topic = (analysis.get("topic") or "").strip()
         if institution:
-            queries.append(f"{institution} official website")
-            queries.append(f"{institution} admissions")
-            topic = (analysis.get("topic") or "").strip()
-            queries.append(f"{institution} {topic}".strip() if topic else institution)
-            low = text.lower()
-            if any(w in low for w in ("admission", "apply", "brochure", "prospectus")):
-                queries.append(f"{institution} admission brochure pdf")
-            if any(w in low for w in ("fee", "fees", "tuition")):
-                queries.append(f"{institution} fee structure pdf")
-            if "syllabus" in low or "curriculum" in low:
-                queries.append(f"{institution} syllabus pdf")
-            if "department" in low or "course" in low:
-                queries.append(f"{institution} department course details pdf")
-        # The LLM's own suggestions next (often well-scoped).
+            combined = f"{institution} {topic}".strip() if topic else f"{institution} official website"
+            queries.append(combined)
+            if not settings.edu_fast_mode:
+                queries.append(f"{institution} official website")
+                queries.append(f"{institution} admissions")
+                low = text.lower()
+                if any(w in low for w in ("admission", "fee", "fees", "syllabus", "department", "course")):
+                    queries.append(text)
+        else:
+            queries.append(text)
+            if not settings.edu_fast_mode:
+                official_probe = f"{text} official website"
+                queries.append(official_probe)
         for q in analysis.get("search_queries") or []:
             if q and q not in queries:
                 queries.append(q)
-        # Always include the raw question and a generic official-website probe.
-        if text not in queries:
-            queries.append(text)
-        official_probe = f"{text} official website"
-        if not institution and official_probe not in queries:
-            queries.append(official_probe)
-        return queries[: max(settings.edu_search_max_queries + 2, 5)]
+        return queries[: settings.edu_search_max_queries]
 
     def _ensure_links(
         self,
@@ -419,18 +412,12 @@ class EduOrchestrator:
             for r in get_official_search_results(institution, user_query or institution):
                 _add_result(r)
 
-        for q in queries:
-            payload = search_with_grounding(q)
-            for r in (payload.get("results") or [])[:4]:
-                _add_result(r)
+        # Parallel web search (2 queries max in fast mode).
+        for r in search_many_parallel(queries):
+            _add_result(r)
 
-        if institution and not official and not others:
-            payload = search_with_grounding(f"{institution} official website")
-            for r in (payload.get("results") or [])[:3]:
-                _add_result(r)
-
-        # Discover official domains for ANY institution (works when HTML search fails on cloud).
-        if institution:
+        # Only discover extra URLs if we still have nothing official.
+        if institution and len(official) < 2:
             for u in find_official_urls_for_institution(institution, user_query):
                 _add_result(
                     {
@@ -441,14 +428,17 @@ class EduOrchestrator:
                     }
                 )
 
-        # Harvest PDFs, documents, images, and relevant sub-pages from official sites.
+        # Quick PDF/page scan on one official page (fast mode).
         resources: list[dict[str, Any]] = []
-        seed_pages = [u for u in official[:3]] or [u for u in others[:2]]
+        seed_pages = [u for u in official[:2]] or [u for u in others[:1]]
         if institution and not seed_pages:
-            seed_pages = find_official_urls_for_institution(institution, user_query)[:2]
-        if seed_pages:
+            seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
+        if seed_pages and settings.external_search_enabled:
+            max_pg = settings.edu_asset_harvest_pages
             resources = harvest_official_assets(
-                seed_pages[:2], user_query or institution or queries[0], max_pages=2
+                seed_pages[:max_pg],
+                user_query or institution or (queries[0] if queries else ""),
+                max_pages=max_pg,
             )
             tag_map = {"pdf": "OFFICIAL-PDF", "document": "OFFICIAL-DOC", "page": "OFFICIAL-PAGE", "image": "OFFICIAL-IMAGE"}
             for r in resources:

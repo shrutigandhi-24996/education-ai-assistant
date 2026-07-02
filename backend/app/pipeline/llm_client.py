@@ -170,4 +170,6 @@ class LLMClient:
         if history:
             msgs.extend(history[-settings.edu_history_turns :])
         msgs.append({"role": "user", "content": user_block})
-        return self._chat(msgs, model=settings.groq_model).strip()
+        model = settings.groq_fast_model if settings.edu_fast_mode else settings.groq_model
+        max_tok = 600 if settings.edu_fast_mode else settings.llm_max_tokens
+        return self._chat(msgs, model=model, max_tokens=max_tok).strip()

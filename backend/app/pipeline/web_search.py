@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 
 import httpx
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from backend.app.config import settings
 from backend.app.pipeline.web_scraper import html_to_text
 
@@ -118,6 +120,11 @@ def search_web(query: str, max_results: int | None = None) -> list[dict]:
     """Return a list of {title, url, snippet} for a free-text query."""
     limit = max_results or settings.external_search_max_results
     timeout = settings.external_search_timeout
+    # DDGS first in fast mode (quicker on cloud hosts).
+    if settings.edu_fast_mode:
+        rows = _search_web_ddgs(query, limit)
+        if rows:
+            return rows
     q = quote_plus(query)
     for endpoint in (_HTML_ENDPOINT, _LITE_ENDPOINT):
         try:
@@ -128,6 +135,32 @@ def search_web(query: str, max_results: int | None = None) -> list[dict]:
         if results:
             return _rank_results(results)
     return _search_web_ddgs(query, limit)
+
+
+def search_many_parallel(queries: list[str], max_results: int | None = None) -> list[dict]:
+    """Run up to 3 searches concurrently; return deduplicated ranked results."""
+    seen_urls: set[str] = set()
+    merged: list[dict] = []
+    unique: list[str] = []
+    for q in queries:
+        q = q.strip()
+        if q and q not in unique:
+            unique.append(q)
+    if not unique:
+        return []
+    workers = min(3, len(unique))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(search_web, q, max_results): q for q in unique}
+        for fut in as_completed(futures):
+            try:
+                for r in fut.result():
+                    url = r.get("url") or ""
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        merged.append(r)
+            except Exception:
+                continue
+    return _rank_results(merged)
 
 
 def _search_web_ddgs(query: str, limit: int) -> list[dict]:
@@ -159,27 +192,24 @@ def find_official_urls_for_institution(institution: str, query: str = "") -> lis
     """Discover official college/university/school URLs for any institution worldwide."""
     seen: set[str] = set()
     urls: list[str] = []
-    probes = [
-        f"{institution} official website",
-        f"{institution} admissions official site",
-    ]
-    topic = query.lower()
-    if any(w in topic for w in ("fee", "fees", "tuition")):
-        probes.append(f"{institution} fee structure official")
-    if any(w in topic for w in ("syllabus", "curriculum", "course")):
-        probes.append(f"{institution} syllabus courses official")
-    if "department" in topic:
-        probes.append(f"{institution} department official")
+    probes = [f"{institution} official website"]
+    if not settings.edu_fast_mode:
+        probes.append(f"{institution} admissions official site")
+        topic = query.lower()
+        if any(w in topic for w in ("fee", "fees", "tuition")):
+            probes.append(f"{institution} fee structure official")
+        if any(w in topic for w in ("syllabus", "curriculum", "course")):
+            probes.append(f"{institution} syllabus courses official")
 
-    for q in probes:
-        for r in search_web(q, max_results=6):
+    for q in probes[:2 if settings.edu_fast_mode else 4]:
+        for r in search_web(q, max_results=4):
             u = r.get("url") or ""
             if u and u not in seen and (_is_official_url(u) or institution.split()[0].lower() in u.lower()):
                 seen.add(u)
                 urls.append(u)
-        if len(urls) >= 4:
+        if len(urls) >= (2 if settings.edu_fast_mode else 4):
             break
-    return urls[:5]
+    return urls[:3 if settings.edu_fast_mode else 5]
 
 
 def fetch_page_extract(url: str, query: str, max_len: int = 900) -> str:
@@ -250,9 +280,10 @@ def search_with_grounding(query: str, institution: str | None = None) -> dict:
     results = search_web(query)
     results = _rank_results(results)
     fetch_n = min(settings.external_search_fetch_pages, len(results))
-    for r in results[:fetch_n]:
-        extract = fetch_page_extract(r["url"], query)
-        if extract:
-            r["extract"] = extract
+    if fetch_n > 0 and not settings.edu_fast_mode:
+        for r in results[:fetch_n]:
+            extract = fetch_page_extract(r["url"], query)
+            if extract:
+                r["extract"] = extract
     _save_cached(query, results)
     return {"results": results, "grounded": bool(results), "cached": False}
