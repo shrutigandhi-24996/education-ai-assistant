@@ -172,11 +172,19 @@ class LLMClient:
         web_context: str,
         history: list[dict[str, str]] | None = None,
         high_accuracy: bool = False,
+        institution: str = "",
     ) -> str:
         role = analysis.get("user_role", "student")
         intents = ", ".join(analysis.get("intents", []) or [])
         context_block = web_context.strip() or "(no web context retrieved)"
+        inst_line = (
+            f"INSTITUTION FOR THIS QUESTION ONLY: {institution}\n"
+            "Ignore data from any other college/university/school mentioned earlier in the chat.\n\n"
+            if institution
+            else ""
+        )
         user_block = (
+            f"{inst_line}"
             f"User role: {role}\n"
             f"Detected intents: {intents}\n\n"
             f"WEB CONTEXT (use only this for specific facts; cite the links):\n{context_block}\n\n"

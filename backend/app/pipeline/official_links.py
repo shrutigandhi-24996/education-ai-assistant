@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 # Canonical institution name -> topic -> official URLs (verified university domains).
 INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
@@ -32,10 +33,24 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://www.srki.ac.in/pages/su-syllabus/",
             "https://www.srki.ac.in/pages/courses-offered/",
         ],
+        "syllabus_pdfs": [
+            "https://www.srki.ac.in/upload/2024-25/NEP_BSc_CS_Sem1_Syllabus_CS_2024-25-1-16.pdf",
+            "https://www.srki.ac.in/upload/2024-25/NEP_BSc_IT_Sem1_Syllabus_IT_2024-25.pdf",
+            "https://www.srki.ac.in/upload/2022-23/B.Sc%20IT.pdf",
+        ],
     },
     "Gujarat Technological University": {
         "default": ["https://www.gtu.ac.in/"],
         "admission": ["https://www.gtu.ac.in/admission.aspx"],
+        "syllabus": [
+            "https://www.gtu.ac.in/syllabus.aspx",
+            "https://www.gtu.ac.in/StudyMaterial.aspx",
+            "https://www.gtu.ac.in/AllCourses.aspx",
+        ],
+        "academics": [
+            "https://www.gtu.ac.in/syllabus.aspx",
+            "https://www.gtu.ac.in/StudyMaterial.aspx",
+        ],
     },
     "Sardar Vallabhbhai National Institute of Technology Surat": {
         "default": ["https://www.svnit.ac.in/"],
@@ -100,3 +115,108 @@ def get_official_search_results(institution: str, query: str = "") -> list[dict]
             }
         )
     return results
+
+
+# Known domain roots per institution (used to block cross-college URL mixing).
+_INSTITUTION_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
+    "Shree Ramkrishna Institute of Computer Education and Applied Sciences": ("srki.ac.in",),
+    "Gujarat Technological University": ("gtu.ac.in",),
+    "Veer Narmad South Gujarat University": ("vnsgu.ac.in", "vnsguj.ac.in", "vnsguadm.samarth.edu.in", "vnsgu.net"),
+    "Sardar Vallabhbhai National Institute of Technology Surat": ("svnit.ac.in",),
+}
+
+_JUNK_PDF_TITLE = re.compile(
+    r"^(view(\s*\(\d+\))?(\.pdf)?|click\s*here\.+|download|here\.+|\.pdf)$",
+    re.I,
+)
+
+
+def get_institution_domains(institution: str) -> set[str]:
+    domains: set[str] = set(_INSTITUTION_DOMAIN_HINTS.get(institution, ()))
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+    for urls in catalog.values():
+        for url in urls:
+            host = urlparse(url).netloc.lower().replace("www.", "")
+            if host:
+                domains.add(host)
+    return domains
+
+
+def url_belongs_to_institution(url: str, institution: str) -> bool:
+    if not institution or not url:
+        return True
+    domains = get_institution_domains(institution)
+    if not domains:
+        return True
+    host = urlparse(url).netloc.lower().replace("www.", "")
+    return any(host == d or host.endswith(f".{d}") for d in domains)
+
+
+def is_junk_pdf(title: str, url: str) -> bool:
+    name = (title or url.rsplit("/", 1)[-1]).strip()
+    if not name or len(name) < 4:
+        return True
+    if _JUNK_PDF_TITLE.match(name):
+        return True
+    low = name.lower()
+    if low.startswith("click here") or low == "view" or low.startswith("view "):
+        return True
+    return False
+
+
+def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
+    """Return curated official PDF links for an institution (syllabus etc.)."""
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+    pdfs = catalog.get("syllabus_pdfs") or []
+    low = query.lower()
+    out: list[dict] = []
+    for url in pdfs:
+        label = url.rsplit("/", 1)[-1]
+        score = 20
+        if "sem1" in low or "sem 1" in low or "sem-1" in low:
+            if "sem1" in label.lower() or "sem-1" in label.lower() or "_1_" in label.lower():
+                score += 15
+            if "sem2" in label.lower() or "sem-2" in label.lower():
+                score -= 20
+        if "sem2" in low or "sem 2" in low or "sem-2" in low:
+            if "sem2" in label.lower() or "sem-2" in label.lower():
+                score += 15
+            if "sem1" in label.lower():
+                score -= 20
+        if "it" in low.split() and "it" in label.lower():
+            score += 10
+        if "bca" in low and "bca" in label.lower():
+            score += 10
+        if "2024-25" in label or "2024" in label:
+            score += 5
+        out.append(
+            {
+                "type": "pdf",
+                "url": url,
+                "title": label,
+                "score": score,
+                "source": "curated",
+                "curated": True,
+            }
+        )
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return out
+
+
+def filter_urls_for_institution(urls: list[str], institution: str) -> list[str]:
+    if not institution:
+        return urls
+    return [u for u in urls if url_belongs_to_institution(u, institution)]
+
+
+def filter_resources_for_institution(resources: list[dict], institution: str) -> list[dict]:
+    if not institution:
+        return resources
+    out: list[dict] = []
+    for r in resources:
+        url = r.get("url", "")
+        if r.get("type") == "pdf" and is_junk_pdf(r.get("title", ""), url):
+            continue
+        if url_belongs_to_institution(url, institution):
+            out.append(r)
+    return out

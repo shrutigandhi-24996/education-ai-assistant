@@ -117,6 +117,7 @@ INSTITUTION_ALIASES: dict[str, str] = {
     "mit usa": "Massachusetts Institute of Technology",
     "manipal": "Manipal Institute of Technology",
     "gtu ahmedabad": "Gujarat Technological University",
+    "gtu": "Gujarat Technological University",
     "gujarat technological": "Gujarat Technological University",
     "gujarat university": "Gujarat University",
     "delhi university": "University of Delhi",

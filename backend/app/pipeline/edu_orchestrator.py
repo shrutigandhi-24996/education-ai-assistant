@@ -38,7 +38,16 @@ from backend.app.pipeline.institution_web_resolver import (
     search_institution_by_short_name,
 )
 from backend.app.pipeline.llm_client import LLMClient
-from backend.app.pipeline.official_links import get_official_search_results, get_official_urls
+from backend.app.pipeline.official_links import (
+    filter_resources_for_institution,
+    filter_urls_for_institution,
+    get_curated_pdf_results,
+    get_institution_domains,
+    get_official_search_results,
+    get_official_urls,
+    is_junk_pdf,
+    url_belongs_to_institution,
+)
 from backend.app.pipeline.page_assets import _asset_type, harvest_official_assets
 from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
@@ -413,6 +422,8 @@ class EduOrchestrator:
         if not is_syllabus_query(user_query):
             return reply
         pdfs = [r for r in (resources or []) if r.get("type") == "pdf"]
+        pdfs = [r for r in pdfs if not is_junk_pdf(r.get("title", ""), r.get("url", ""))]
+        pdfs.sort(key=lambda r: r.get("score", 0), reverse=True)
         read_pdfs = [r for r in pdfs if r.get("has_content")]
         if read_pdfs:
             top = read_pdfs[0]
@@ -449,6 +460,21 @@ class EduOrchestrator:
         low = text.lower()
         return any(w in low for w in _FACTUAL_WORDS)
 
+    def _resolve_institution_for_query(
+        self,
+        text: str,
+        session: EduSession,
+        analysis: dict[str, Any],
+        known_institution: str | None,
+    ) -> str:
+        """Prefer institution named in the CURRENT message over LLM/history."""
+        llm_inst = (analysis.get("institution") or "").strip()
+        if known_institution:
+            return known_institution
+        if llm_inst:
+            return llm_inst
+        return (session.last_institution or "").strip()
+
     def _gather_web_context(
         self, queries: list[str], institution: str = "", user_query: str = ""
     ) -> tuple[str, list[str], list[dict[str, Any]]]:
@@ -456,11 +482,15 @@ class EduOrchestrator:
         official: list[str] = []
         others: list[str] = []
         seen: set[str] = set()
+        resources: list[dict[str, Any]] = []
 
         def _add_result(r: dict[str, Any]) -> None:
             url = r.get("url")
             if not url or url in seen:
                 return
+            if institution and get_institution_domains(institution) and not url_belongs_to_institution(url, institution):
+                if not r.get("curated"):
+                    return
             seen.add(url)
             tag = "OFFICIAL" if self._is_official(url) or r.get("curated") else "web"
             body = (r.get("extract") or r.get("snippet") or "").strip()
@@ -475,6 +505,16 @@ class EduOrchestrator:
         if institution:
             for r in get_official_search_results(institution, user_query or institution):
                 _add_result(r)
+            for r in get_curated_pdf_results(institution, user_query or ""):
+                if r.get("url") and not is_junk_pdf(r.get("title", ""), r["url"]):
+                    resources.append(r)
+                    blocks.append(
+                        f"[OFFICIAL-PDF] {r.get('title') or r['url']}\n"
+                        f"Type: PDF | Curated official syllabus document\n"
+                        f"Direct link: {r['url']}"
+                    )
+                    official.append(r["url"])
+                    seen.add(r["url"])
 
         # Parallel web search (2 queries max in fast mode).
         for r in search_many_parallel(queries):
@@ -492,18 +532,18 @@ class EduOrchestrator:
                     }
                 )
 
-        # Quick PDF/page scan on one official page (fast mode).
-        resources: list[dict[str, Any]] = []
+        # Quick PDF/page scan on official pages.
         seed_pages = [u for u in official[:2]] or [u for u in others[:1]]
         if institution and not seed_pages:
             seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
         if seed_pages and settings.external_search_enabled:
             max_pg = settings.edu_asset_harvest_pages
-            resources = harvest_official_assets(
+            harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),
                 max_pages=max_pg,
             )
+            resources.extend(harvested)
             tag_map = {"pdf": "OFFICIAL-PDF", "document": "OFFICIAL-DOC", "page": "OFFICIAL-PAGE", "image": "OFFICIAL-IMAGE"}
             for r in resources:
                 url = r.get("url")
@@ -571,13 +611,20 @@ class EduOrchestrator:
                             f"Source: {page_url}"
                         )
 
-            # Read PDF text so answers can be grounded in official documents.
-            if resources:
-                query_for_pdf = user_query or institution or (queries[0] if queries else "")
-                max_pdfs = 3 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
-                resources = enrich_pdf_resources(resources, query_for_pdf, max_pdfs=max_pdfs)
-                for pdf_block in format_pdf_context_blocks(resources):
-                    blocks.append(pdf_block)
+        # Read PDF text so answers can be grounded in official documents.
+        if resources:
+            query_for_pdf = user_query or institution or (queries[0] if queries else "")
+            max_pdfs = 1 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
+            resources = enrich_pdf_resources(
+                resources, query_for_pdf, max_pdfs=max_pdfs, institution=institution
+            )
+            for pdf_block in format_pdf_context_blocks(resources):
+                blocks.append(pdf_block)
+
+        if institution:
+            resources = filter_resources_for_institution(resources, institution)
+            official = filter_urls_for_institution(official, institution)
+            others = [u for u in others if url_belongs_to_institution(u, institution) or self._is_official(u)]
 
         sources = list(dict.fromkeys(official + others))
         return "\n\n---\n\n".join(blocks), sources, resources
@@ -783,9 +830,8 @@ class EduOrchestrator:
             }
 
         clarification = analysis.get("clarification")
-        institution = (
-            (analysis.get("institution") or known_institution or session.last_institution or "")
-            .strip()
+        institution = self._resolve_institution_for_query(
+            text, session, analysis, known_institution
         )
 
         if self._needs_named_institution(text, analysis, institution, session):
@@ -833,6 +879,7 @@ class EduOrchestrator:
 
         if institution:
             session.last_institution = institution
+            analysis["institution"] = institution
             self._boost_analysis_for_institution(analysis, text, institution)
 
         is_institution_q = self._institution_query(text, institution, session)
@@ -849,6 +896,7 @@ class EduOrchestrator:
             web_context,
             session.history,
             high_accuracy=self._needs_high_accuracy(text, institution),
+            institution=institution,
         )
         reply = self._ensure_links(reply, sources, institution, resources)
         reply = self._ensure_syllabus_answer(reply, resources, institution, text)

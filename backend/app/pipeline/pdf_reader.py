@@ -105,11 +105,21 @@ def read_pdf_from_url(url: str, title: str = "") -> dict[str, Any]:
     }
 
 
-def enrich_pdf_resources(resources: list[dict[str, Any]], query: str, max_pdfs: int = 2) -> list[dict[str, Any]]:
+def enrich_pdf_resources(
+    resources: list[dict[str, Any]],
+    query: str,
+    max_pdfs: int = 2,
+    institution: str = "",
+) -> list[dict[str, Any]]:
     """Extract text from the most relevant PDF resources (in parallel)."""
+    from backend.app.pipeline.official_links import filter_resources_for_institution, is_junk_pdf
+
     pdfs = [r for r in resources if r.get("type") == "pdf"]
+    if institution:
+        pdfs = filter_resources_for_institution(pdfs, institution)
+    pdfs = [r for r in pdfs if not is_junk_pdf(r.get("title", ""), r.get("url", ""))]
     if not pdfs:
-        return resources
+        return [r for r in resources if r.get("type") != "pdf"]
 
     pdfs.sort(key=lambda r: r.get("score", 0), reverse=True)
     to_read = pdfs[:max_pdfs]

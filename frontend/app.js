@@ -486,7 +486,8 @@ function addMessage(role, text, sources, resources, clarificationOptions) {
     bubble.appendChild(content);
 
     const pdfs = (resources || []).filter((r) => r.type === "pdf");
-    const primaryPdf = pdfs.find((r) => r.has_content) || pdfs[0];
+    const sortedPdfs = pdfs.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const primaryPdf = sortedPdfs.find((r) => r.has_content) || sortedPdfs[0];
     if (primaryPdf) {
       bubble.appendChild(createPdfViewer(primaryPdf));
     }

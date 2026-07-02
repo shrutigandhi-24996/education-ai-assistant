@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from backend.app.config import settings
+from backend.app.pipeline.official_links import is_junk_pdf, url_belongs_to_institution
 from backend.app.pipeline.page_assets import _asset_type, _clean_text, _HREF_RE
 from backend.app.pipeline.web_search import _http_get, search_web
 
@@ -134,6 +135,19 @@ def _score_nav_link(url: str, label: str, intent: dict[str, Any], depth: int, to
         score += 4
     if "/pages/" in url or "/academic" in url:
         score += 2
+    # Penalize wrong semester in filename when user asked a specific sem.
+    sem = intent.get("semester")
+    if sem and _asset_type(url) == "pdf":
+        wrong = []
+        for other in range(1, 9):
+            if other == sem:
+                continue
+            if f"sem{other}" in blob_ns or f"sem-{other}" in blob_ns or f"semester{other}" in blob_ns:
+                wrong.append(other)
+        if wrong:
+            score -= 25
+    if is_junk_pdf(label, url):
+        score -= 50
     return score
 
 
@@ -264,7 +278,11 @@ def crawl_official_site(
 
         root_host = urlparse(url).netloc.lower().replace("www.", "")
         for link, label in _extract_links(html, url, nav_bonus=True):
+            if institution and not url_belongs_to_institution(link, institution):
+                continue
             score = _score_nav_link(link, label, intent, depth + 1, topics)
+            if _asset_type(link) == "pdf" and is_junk_pdf(label, link):
+                continue
             if _asset_type(link) == "pdf" and score >= min_pdf:
                 pdfs.append(
                     {
