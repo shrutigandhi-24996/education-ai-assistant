@@ -45,6 +45,21 @@ function getSessionId() {
 let userId = getUserId();
 const sessionId = getSessionId();
 let sending = false;
+let searchStepTimer = null;
+let searchStepIndex = 0;
+
+const SEARCH_STEPS = [
+  { icon: "🧠", title: "Search mode — Step 1/4", step: "Analyzing your question & detecting intent…", intent: "Detecting intent…", multi: "Analyzing multi-intent…", context: "Building context…", answer: "Preparing search…", sources: "Waiting…" },
+  { icon: "🌐", title: "Search mode — Step 2/4", step: "Searching official college / university websites…", intent: "Intent analysis in progress…", multi: "Checking multiple intents…", context: "Mapping institution & topic…", answer: "Querying the web…", sources: "Finding official domains…" },
+  { icon: "📄", title: "Search mode — Step 3/4", step: "Scanning pages for PDFs, fees, syllabus & course files…", intent: "Intent detected (finalizing)…", multi: "Multi-intent resolved…", context: "Collecting page context…", answer: "Extracting PDFs & documents…", sources: "Scanning for PDFs & links…" },
+  { icon: "🤖", title: "Search mode — Step 4/4", step: "Generating answer with official sources…", intent: "Intent ready…", multi: "Multi-intent ready…", context: "Context assembled…", answer: "Writing grounded answer…", sources: "Attaching official sources…" },
+];
+
+const searchBanner = document.getElementById("search-banner");
+const searchBannerTitle = document.getElementById("search-banner-title");
+const searchBannerStep = document.getElementById("search-banner-step");
+const sendBtn = document.getElementById("send-btn");
+const composerEl = document.getElementById("form");
 
 function setChatEnabled(enabled) {
   input.disabled = !enabled;
@@ -58,6 +73,53 @@ function setChatEnabled(enabled) {
 function setSending(active) {
   sending = active;
   setChatEnabled(!active);
+  if (sendBtn) {
+    sendBtn.textContent = active ? "Searching…" : "Send";
+    sendBtn.classList.toggle("is-searching", active);
+  }
+  composerEl.classList.toggle("searching", active);
+}
+
+function applySearchStep(index) {
+  const s = SEARCH_STEPS[index % SEARCH_STEPS.length];
+  if (searchBannerTitle) searchBannerTitle.textContent = `${s.icon} ${s.title}`;
+  if (searchBannerStep) searchBannerStep.textContent = s.step;
+  if (labelStatus) {
+    labelStatus.textContent = "🔍 Search mode";
+    labelStatus.className = "label-status running";
+  }
+  if (statusEl) statusEl.textContent = s.step;
+  setLabel(lbl.intent, s.intent, true);
+  setLabel(lbl.multi, s.multi, true);
+  setLabel(lbl.context, s.context, true);
+  setLabel(lbl.answer, s.answer, true);
+  setLabel(lbl.sources, s.sources, true);
+}
+
+function startSearchMode(email, question) {
+  labelPanel.classList.add("is-running");
+  searchBanner.classList.remove("hidden");
+  searchStepIndex = 0;
+  setLabel(lbl.email, escapeHtml(email));
+  setLabel(lbl.question, escapeHtml(question));
+  lbl.context.classList.add("mono");
+  applySearchStep(0);
+  searchStepTimer = setInterval(() => {
+    searchStepIndex += 1;
+    applySearchStep(searchStepIndex);
+  }, 3500);
+}
+
+function stopSearchMode() {
+  if (searchStepTimer) {
+    clearInterval(searchStepTimer);
+    searchStepTimer = null;
+  }
+  searchBanner.classList.add("hidden");
+  composerEl.classList.remove("searching");
+  if (statusEl && !sending) {
+    refreshHealth();
+  }
 }
 
 function openEmailModal() {
@@ -194,20 +256,11 @@ function showLabelsIdle() {
 }
 
 function showLabelsLoading(email, question) {
-  labelPanel.classList.add("is-running");
-  labelStatus.textContent = "Processing…";
-  labelStatus.className = "label-status running";
-  setLabel(lbl.email, escapeHtml(email));
-  setLabel(lbl.question, escapeHtml(question));
-  setLabel(lbl.intent, "Detecting intent…", true);
-  setLabel(lbl.multi, "Analyzing multi-intent…", true);
-  lbl.context.classList.add("mono");
-  setLabel(lbl.context, "Building context…", true);
-  setLabel(lbl.answer, "Searching the web &amp; generating answer…", true);
-  setLabel(lbl.sources, "Scanning official pages for PDFs &amp; links…", true);
+  startSearchMode(email, question);
 }
 
 function showLabelsResult(email, question, data) {
+  stopSearchMode();
   labelPanel.classList.remove("is-running");
   labelStatus.textContent = "Complete";
   labelStatus.className = "label-status done";
@@ -228,6 +281,7 @@ function showLabelsResult(email, question, data) {
 }
 
 function showLabelsError(email, question, message) {
+  stopSearchMode();
   labelPanel.classList.remove("is-running");
   labelStatus.textContent = "Error";
   labelStatus.className = "label-status idle";
@@ -321,9 +375,12 @@ function addMessage(role, text, sources, resources) {
 
 function addTyping() {
   const row = document.createElement("div");
-  row.className = "message";
+  row.className = "message search-active";
   row.innerHTML =
-    '<div class="avatar bot">🤖</div><div class="bubble typing">🔎 Searching the web & thinking<span class="dots"></span></div>';
+    '<div class="avatar bot">🤖</div><div class="bubble typing typing-box">' +
+    '<span class="typing-step">🔍 Search mode active</span>' +
+    '<span class="typing-detail">Searching official websites, PDFs &amp; documents<span class="dots"></span></span>' +
+    '</div>';
   chatEl.appendChild(row);
   chatEl.scrollTop = chatEl.scrollHeight;
   return row;
@@ -397,6 +454,7 @@ form.addEventListener("submit", async (e) => {
     addMessage("bot", "Sorry, I could not reach the server. Please try again in a moment.");
   } finally {
     setSending(false);
+    stopSearchMode();
   }
 });
 
