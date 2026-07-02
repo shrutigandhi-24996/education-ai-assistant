@@ -34,6 +34,7 @@ from backend.app.pipeline.institution_disambiguation import (
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import get_official_search_results
 from backend.app.pipeline.page_assets import harvest_official_assets
+from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.web_search import find_official_urls_for_institution, search_many_parallel
 
@@ -457,6 +458,14 @@ class EduOrchestrator:
                     official.append(url)
                 else:
                     others.append(url)
+
+            # Read PDF text so answers can be grounded in official documents.
+            if resources:
+                query_for_pdf = user_query or institution or (queries[0] if queries else "")
+                max_pdfs = settings.edu_pdf_max_read if settings.edu_fast_mode else 2
+                resources = enrich_pdf_resources(resources, query_for_pdf, max_pdfs=max_pdfs)
+                for pdf_block in format_pdf_context_blocks(resources):
+                    blocks.append(pdf_block)
 
         sources = list(dict.fromkeys(official + others))
         return "\n\n---\n\n".join(blocks), sources, resources

@@ -51,7 +51,7 @@ let searchStepIndex = 0;
 const SEARCH_STEPS = [
   { icon: "🧠", title: "Search mode — Step 1/4", step: "Analyzing your question & detecting intent…", intent: "Detecting intent…", multi: "Analyzing multi-intent…", context: "Building context…", answer: "Preparing search…", sources: "Waiting…" },
   { icon: "🌐", title: "Search mode — Step 2/4", step: "Searching official college / university websites…", intent: "Intent analysis in progress…", multi: "Checking multiple intents…", context: "Mapping institution & topic…", answer: "Querying the web…", sources: "Finding official domains…" },
-  { icon: "📄", title: "Search mode — Step 3/4", step: "Scanning pages for PDFs, fees, syllabus & course files…", intent: "Intent detected (finalizing)…", multi: "Multi-intent resolved…", context: "Collecting page context…", answer: "Extracting PDFs & documents…", sources: "Scanning for PDFs & links…" },
+  { icon: "📄", title: "Search mode — Step 3/4", step: "Reading official PDFs & extracting key details…", intent: "Intent detected (finalizing)…", multi: "Multi-intent resolved…", context: "Collecting page context…", answer: "Reading PDF content…", sources: "Scanning for PDFs & links…" },
   { icon: "🤖", title: "Search mode — Step 4/4", step: "Generating answer with official sources…", intent: "Intent ready…", multi: "Multi-intent ready…", context: "Context assembled…", answer: "Writing grounded answer…", sources: "Attaching official sources…" },
 ];
 
@@ -319,6 +319,55 @@ function isOfficial(url) {
   return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|\.ac\.in|\.edu\.in|\.nic\.in)$/.test(hostOf(url));
 }
 
+function createPdfViewer(pdf) {
+  const wrap = document.createElement("div");
+  wrap.className = "pdf-viewer-wrap";
+
+  const head = document.createElement("div");
+  head.className = "pdf-viewer-head";
+  const title = document.createElement("span");
+  title.className = "pdf-viewer-title";
+  title.textContent = `📄 ${pdf.title || "Official PDF"}`;
+  head.appendChild(title);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "pdf-toggle";
+  btn.textContent = "Hide PDF";
+
+  const frame = document.createElement("iframe");
+  frame.className = "pdf-frame";
+  frame.src = pdf.url;
+  frame.title = pdf.title || "Official PDF document";
+  frame.loading = "lazy";
+
+  btn.addEventListener("click", () => {
+    const hidden = frame.classList.toggle("hidden");
+    btn.textContent = hidden ? "Open PDF" : "Hide PDF";
+  });
+
+  head.appendChild(btn);
+  wrap.appendChild(head);
+  wrap.appendChild(frame);
+
+  const tabLink = document.createElement("a");
+  tabLink.className = "pdf-open-tab";
+  tabLink.href = pdf.url;
+  tabLink.target = "_blank";
+  tabLink.rel = "noopener";
+  tabLink.textContent = "Open PDF in new tab ↗";
+  wrap.appendChild(tabLink);
+
+  if (pdf.has_content) {
+    const note = document.createElement("p");
+    note.className = "pdf-note";
+    note.textContent = "Answer below is based on text read from this official PDF.";
+    wrap.appendChild(note);
+  }
+
+  return wrap;
+}
+
 function addMessage(role, text, sources, resources) {
   const row = document.createElement("div");
   row.className = "message";
@@ -328,7 +377,19 @@ function addMessage(role, text, sources, resources) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (role === "bot") {
-    bubble.innerHTML = formatMarkdown(text);
+    bubble.classList.add("bot-reply");
+
+    const content = document.createElement("div");
+    content.className = "answer-text";
+    content.innerHTML = formatMarkdown(text);
+    bubble.appendChild(content);
+
+    const pdfs = (resources || []).filter((r) => r.type === "pdf");
+    const primaryPdf = pdfs.find((r) => r.has_content) || pdfs[0];
+    if (primaryPdf) {
+      bubble.appendChild(createPdfViewer(primaryPdf));
+    }
+
     const hasRes = (resources && resources.length) || (sources && sources.length);
     if (hasRes) {
       const box = document.createElement("div");
@@ -346,7 +407,24 @@ function addMessage(role, text, sources, resources) {
           a.href = r.url;
           a.target = "_blank";
           a.rel = "noopener";
-          a.textContent = `${resourceIcon(t)} ${r.title || hostOf(r.url)}`;
+          const suffix = r.has_content && t === "pdf" ? " · read" : "";
+          a.textContent = `${resourceIcon(t)} ${r.title || hostOf(r.url)}${suffix}`;
+          if (t === "pdf") {
+            a.addEventListener("click", (e) => {
+              e.preventDefault();
+              const viewer = bubble.querySelector(".pdf-viewer-wrap");
+              const iframe = bubble.querySelector(".pdf-frame");
+              const toggle = bubble.querySelector(".pdf-toggle");
+              if (viewer && iframe && toggle) {
+                iframe.src = r.url;
+                iframe.classList.remove("hidden");
+                toggle.textContent = "Hide PDF";
+                viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              } else {
+                window.open(r.url, "_blank", "noopener");
+              }
+            });
+          }
           box.appendChild(a);
         });
       }
