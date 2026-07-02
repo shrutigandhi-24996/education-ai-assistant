@@ -5,14 +5,29 @@ from __future__ import annotations
 import io
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from backend.app.config import settings
+from backend.app.pipeline.web_search import _is_official_url
 
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_PAGES = 8
 _MAX_CHARS = 4500 if settings.edu_fast_mode else 7000
+_PDF_PATH = re.compile(r"\.pdf(\?|#|$)", re.I)
+
+
+def is_allowed_pdf_url(url: str) -> bool:
+    """Only proxy official or .pdf URLs to reduce abuse."""
+    if not url.startswith(("http://", "https://")):
+        return False
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        return False
+    if _PDF_PATH.search(url):
+        return True
+    return _is_official_url(url)
 
 
 def _http_get_bytes(url: str, timeout: int) -> bytes:
@@ -29,6 +44,17 @@ def _http_get_bytes(url: str, timeout: int) -> bytes:
     if len(data) > _MAX_BYTES:
         raise ValueError("PDF too large")
     return data
+
+
+def fetch_pdf_for_view(url: str) -> tuple[bytes, str]:
+    """Fetch PDF bytes for same-origin inline viewing (bypasses X-Frame-Options)."""
+    if not is_allowed_pdf_url(url):
+        raise ValueError("PDF URL not allowed")
+    timeout = 12 if settings.edu_fast_mode else 18
+    data = _http_get_bytes(url, timeout=timeout)
+    if not data.startswith(b"%PDF"):
+        raise ValueError("Remote file is not a PDF")
+    return data, "application/pdf"
 
 
 def extract_text_from_pdf_bytes(data: bytes, max_pages: int = _MAX_PAGES, max_chars: int = _MAX_CHARS) -> str:

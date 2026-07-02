@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -143,6 +143,27 @@ def chat(req: ChatRequest) -> ChatResponse:
     result = orchestrator.chat(req.session_id, req.message)
     db.log_conversation(req.user_id.strip().lower(), req.session_id, req.message, result)
     return ChatResponse(**result)
+
+
+@app.get("/api/pdf/view")
+def pdf_view(url: str = Query(..., min_length=10, max_length=2048)) -> Response:
+    """Proxy official PDFs for inline chat viewing (avoids third-party iframe blocks)."""
+    from backend.app.pipeline.pdf_reader import fetch_pdf_for_view
+
+    try:
+        data, media_type = fetch_pdf_for_view(url.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Could not load PDF from official source.") from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
 
 
 @app.get("/api/admin/status", response_model=AdminStatusResponse)

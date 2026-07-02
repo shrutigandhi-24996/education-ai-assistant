@@ -319,6 +319,81 @@ function isOfficial(url) {
   return /(\.edu|\.gov|\.ac\.[a-z]{2,3}|\.edu\.[a-z]{2,3}|\.gov\.[a-z]{2,3}|\.ac\.in|\.edu\.in|\.nic\.in)$/.test(hostOf(url));
 }
 
+function pdfProxyUrl(rawUrl) {
+  return `/api/pdf/view?url=${encodeURIComponent(rawUrl)}`;
+}
+
+function showPdfEmbedFallback(wrap, frame, pdf) {
+  frame.classList.add("hidden");
+  let fallback = wrap.querySelector(".pdf-fallback");
+  if (!fallback) {
+    fallback = document.createElement("div");
+    fallback.className = "pdf-fallback";
+    wrap.insertBefore(fallback, frame.nextSibling);
+  }
+  fallback.innerHTML = "";
+  const msg = document.createElement("p");
+  msg.className = "pdf-fallback-msg";
+  msg.textContent =
+    "This PDF cannot be shown inline here (the site blocks embedding or the file could not be loaded).";
+  fallback.appendChild(msg);
+
+  const hint = document.createElement("p");
+  hint.className = "pdf-fallback-hint";
+  hint.textContent = pdf.has_content
+    ? "Your answer above is still based on text read from this official PDF."
+    : "Open the official PDF in a new tab to view it.";
+  fallback.appendChild(hint);
+
+  const btn = document.createElement("a");
+  btn.className = "pdf-open-primary";
+  btn.href = pdf.url;
+  btn.target = "_blank";
+  btn.rel = "noopener";
+  btn.textContent = "Open PDF in new tab ↗";
+  fallback.appendChild(btn);
+}
+
+function attachPdfEmbedGuard(wrap, frame, pdf) {
+  let settled = false;
+  const fail = () => {
+    if (settled) return;
+    settled = true;
+    showPdfEmbedFallback(wrap, frame, pdf);
+  };
+
+  frame.addEventListener("load", () => {
+    setTimeout(() => {
+      if (settled) return;
+      try {
+        const href = frame.contentWindow?.location?.href || "";
+        if (!href || href === "about:blank" || href.startsWith("about:")) {
+          fail();
+          return;
+        }
+        const doc = frame.contentDocument;
+        const bodyText = (doc?.body?.innerText || "").trim().toLowerCase();
+        if (bodyText.includes("could not load pdf") || bodyText.includes("invalid url")) {
+          fail();
+        }
+      } catch (_) {
+        /* Cross-origin embed — cannot inspect; assume it loaded. */
+      }
+    }, 1200);
+  });
+
+  frame.addEventListener("error", fail);
+  setTimeout(() => {
+    if (settled) return;
+    try {
+      const href = frame.contentWindow?.location?.href || "";
+      if (href === "about:blank") fail();
+    } catch (_) {
+      /* Loaded cross-origin PDF — keep iframe visible. */
+    }
+  }, 4500);
+}
+
 function createPdfViewer(pdf) {
   const wrap = document.createElement("div");
   wrap.className = "pdf-viewer-wrap";
@@ -337,13 +412,17 @@ function createPdfViewer(pdf) {
 
   const frame = document.createElement("iframe");
   frame.className = "pdf-frame";
-  frame.src = pdf.url;
+  frame.src = pdfProxyUrl(pdf.url);
   frame.title = pdf.title || "Official PDF document";
   frame.loading = "lazy";
+  attachPdfEmbedGuard(wrap, frame, pdf);
 
   btn.addEventListener("click", () => {
     const hidden = frame.classList.toggle("hidden");
     btn.textContent = hidden ? "Open PDF" : "Hide PDF";
+    if (!hidden && frame.src === "about:blank") {
+      frame.src = pdfProxyUrl(pdf.url);
+    }
   });
 
   head.appendChild(btn);
@@ -361,7 +440,7 @@ function createPdfViewer(pdf) {
   if (pdf.has_content) {
     const note = document.createElement("p");
     note.className = "pdf-note";
-    note.textContent = "Answer below is based on text read from this official PDF.";
+    note.textContent = "Answer above is based on text read from this official PDF.";
     wrap.appendChild(note);
   }
 
@@ -415,9 +494,16 @@ function addMessage(role, text, sources, resources) {
               const viewer = bubble.querySelector(".pdf-viewer-wrap");
               const iframe = bubble.querySelector(".pdf-frame");
               const toggle = bubble.querySelector(".pdf-toggle");
+              const fallback = bubble.querySelector(".pdf-fallback");
+              if (fallback) {
+                window.open(r.url, "_blank", "noopener");
+                return;
+              }
               if (viewer && iframe && toggle) {
-                iframe.src = r.url;
+                iframe.src = pdfProxyUrl(r.url);
                 iframe.classList.remove("hidden");
+                if (fallback) fallback.remove();
+                attachPdfEmbedGuard(viewer, iframe, r);
                 toggle.textContent = "Hide PDF";
                 viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
               } else {

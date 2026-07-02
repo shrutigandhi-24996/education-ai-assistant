@@ -408,6 +408,37 @@ body {
   background: #fff;
 }
 .pdf-frame.hidden { display: none; }
+.pdf-fallback {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px dashed #86efac;
+  border-radius: 8px;
+  background: #fff;
+}
+.pdf-fallback-msg {
+  margin: 0 0 6px;
+  font-size: 0.84rem;
+  color: #374151;
+}
+.pdf-fallback-hint {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: #166534;
+  font-style: italic;
+}
+.pdf-open-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pdf-open-primary:hover { background: #15803d; }
 .pdf-open-tab {
   display: inline-block;
   margin-top: 8px;
