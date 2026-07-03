@@ -457,11 +457,11 @@ function ensureUserEmail() {
 
 const SUGGESTIONS = [
   "SRKI BSc IT sem-1 syllabus",
+  "SU Sarvajanik University constituent colleges",
+  "VNSGU BCA syllabus sem 1",
   "VNSGU admission 2026 fees and eligibility",
   "GTU BCA syllabus sem 2",
-  "SU Sarvajanik University constituent colleges",
-  "VNSGU official website and affiliated colleges",
-  "SRKI admission corner 2026",
+  "SCET Sarvajanik University admission",
 ];
 
 function setLabel(el, html, pending = false) {

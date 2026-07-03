@@ -5,9 +5,18 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
+from backend.app.pipeline.institution_catalog import (
+    SRKI,
+    SU,
+    VNSGU,
+    get_crawl_seed_urls,
+    get_extra_domains,
+    is_su_network,
+)
+
 # Canonical institution name -> topic -> official URLs (verified university domains).
 INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
-    "Veer Narmad South Gujarat University": {
+    VNSGU: {
         "default": [
             "https://www.vnsgu.ac.in/",
             "https://www.vnsguj.ac.in/",
@@ -21,15 +30,25 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://vnsguj.ac.in/contact_us.php",
         ],
         "syllabus": [
+            "https://vnsgu.ac.in/Syllabus/",
             "https://www.vnsgu.ac.in/",
             "https://www.vnsguj.ac.in/",
+            "https://www.vnsgu.ac.in/external_examination",
         ],
         "academics": [
-            "https://www.vnsgu.ac.in/",
+            "https://vnsgu.ac.in/Syllabus/",
             "https://www.vnsguj.ac.in/affiliated_colleges.php",
+            "https://www.vnsgu.ac.in/",
+        ],
+        "exam": [
+            "https://www.vnsgu.ac.in/external_examination",
+        ],
+        "syllabus_pdfs": [
+            "https://vnsgu.ac.in/Syllabus/Syllabus/Syllabus%20(2024-2025)/Computer%20Science/UG/BCA%20Artificial%20Intelligence%20&%20Data%20Analytics%20(Honours)%20Sem%201%20&%202%20Syllabus%20from%202024-25%20(dt%2029-05-2024).pdf",
+            "https://vnsgu.ac.in/uploads/syllabus/Syllabus%20(2025-2026)/Computer%20Science/UG/B.Sc.(Data%20Science%20and%20Analytics)Sem.-3%20&%204%20Syllabus%202025-26_(16-06-2025).pdf",
         ],
     },
-    "Shree Ramkrishna Institute of Computer Education and Applied Sciences": {
+    SRKI: {
         "default": ["https://www.srki.ac.in/"],
         "admission": ["https://www.srki.ac.in/pages/admission-corner/"],
         "syllabus": [
@@ -65,10 +84,34 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         "admission": ["https://www.svnit.ac.in/admission"],
     },
     "Sarvajanik University": {
-        "default": ["https://www.sarvajanikuniversity.edu.in/"],
-        "syllabus": ["https://www.sarvajanikuniversity.edu.in/"],
-        "academics": ["https://www.sarvajanikuniversity.edu.in/"],
-        "admission": ["https://www.sarvajanikuniversity.edu.in/"],
+        "default": [
+            "https://www.sarvajanikuniversity.ac.in/",
+            "https://sarvajanikuniversity.ac.in/aboutus/",
+        ],
+        "syllabus": [
+            "https://www.srki.ac.in/pages/su-syllabus/",
+            "https://www.sarvajanikuniversity.ac.in/",
+            "https://sarvajanikuniversity.ac.in/aboutus/",
+        ],
+        "academics": [
+            "https://sarvajanikuniversity.ac.in/aboutus/",
+            "https://www.srki.ac.in/pages/courses-offered/",
+        ],
+        "admission": [
+            "https://www.sarvajanikuniversity.ac.in/",
+            "https://www.srki.ac.in/pages/admission-corner/",
+        ],
+    },
+    "Sarvajanik College of Engineering and Technology": {
+        "default": ["https://www.scet.ac.in/"],
+        "admission": ["https://www.scet.ac.in/"],
+        "syllabus": ["https://www.scet.ac.in/", "https://www.srki.ac.in/pages/su-syllabus/"],
+        "academics": ["https://www.scet.ac.in/"],
+    },
+    "B.R.C.M. College of Business Administration": {
+        "default": ["https://www.brcmbba.org/"],
+        "admission": ["https://www.brcmbba.org/"],
+        "syllabus": ["https://www.brcmbba.org/"],
     },
 }
 
@@ -99,15 +142,17 @@ def _topics_for_query(query: str) -> list[str]:
 def get_official_urls(institution: str, query: str = "") -> list[str]:
     """Return deduplicated official URLs for a named institution."""
     catalog = INSTITUTION_OFFICIAL_LINKS.get(institution)
-    if not catalog:
-        return []
     urls: list[str] = []
     seen: set[str] = set()
-    for topic in _topics_for_query(query):
-        for url in catalog.get(topic, []):
-            if url not in seen:
-                seen.add(url)
-                urls.append(url)
+    if catalog:
+        for topic in _topics_for_query(query):
+            for url in catalog.get(topic, []):
+                if url not in seen:
+                    seen.add(url)
+                    urls.append(url)
+    # SU parent queries also surface constituent college entry pages.
+    if is_su_network(institution):
+        urls = get_crawl_seed_urls(institution, urls, query)
     return urls
 
 
@@ -133,10 +178,12 @@ def get_official_search_results(institution: str, query: str = "") -> list[dict]
 
 # Known domain roots per institution (used to block cross-college URL mixing).
 _INSTITUTION_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
-    "Shree Ramkrishna Institute of Computer Education and Applied Sciences": ("srki.ac.in",),
-    "Sarvajanik University": ("sarvajanikuniversity.edu.in", "srki.ac.in"),
+    SRKI: ("srki.ac.in",),
+    SU: ("sarvajanikuniversity.ac.in", "sarvajanikuniversity.edu.in", "srki.ac.in", "scet.ac.in"),
+    "Sarvajanik College of Engineering and Technology": ("scet.ac.in", "sarvajanikuniversity.ac.in"),
+    "B.R.C.M. College of Business Administration": ("brcmbba.org", "sarvajanikuniversity.ac.in"),
     "Gujarat Technological University": ("gtu.ac.in",),
-    "Veer Narmad South Gujarat University": ("vnsgu.ac.in", "vnsguj.ac.in", "vnsguadm.samarth.edu.in", "vnsgu.net"),
+    VNSGU: ("vnsgu.ac.in", "vnsguj.ac.in", "vnsguadm.samarth.edu.in", "vnsgu.net"),
     "Sardar Vallabhbhai National Institute of Technology Surat": ("svnit.ac.in",),
 }
 
@@ -148,6 +195,7 @@ _JUNK_PDF_TITLE = re.compile(
 
 def get_institution_domains(institution: str) -> set[str]:
     domains: set[str] = set(_INSTITUTION_DOMAIN_HINTS.get(institution, ()))
+    domains.update(get_extra_domains(institution))
     catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
     for urls in catalog.values():
         for url in urls:
@@ -202,6 +250,12 @@ def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
             score += 10
         if "bca" in low and "bca" in label.lower():
             score += 10
+        if "bsc" in low and "b.sc" in label.lower():
+            score += 8
+        if "data science" in low and "data" in label.lower():
+            score += 8
+        if "2025-26" in label or "2025" in label:
+            score += 6
         if "2024-25" in label or "2024" in label:
             score += 5
         out.append(

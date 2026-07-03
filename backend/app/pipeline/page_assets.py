@@ -13,9 +13,14 @@ from backend.app.pipeline.web_search import _http_get, _is_official_url
 
 _FILE_PDF = re.compile(r"\.pdf(\?|#|$)", re.I)
 _FILE_DOC = re.compile(r"\.(doc|docx|xls|xlsx|ppt|pptx)(\?|#|$)", re.I)
-_FILE_IMG = re.compile(r"\.(jpg|jpeg|png|gif|webp)(\?|#|$)", re.I)
+_FILE_IMG = re.compile(r"\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)", re.I)
 _HREF_RE = re.compile(r'<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+_IMG_SRC_RE = re.compile(
+    r'<img\b[^>]*\bsrc=["\']([^"\']+)["\'][^>]*(?:\balt=["\']([^"\']*)["\'])?',
+    re.I | re.S,
+)
 _TAG = re.compile(r"<[^>]+>")
+_DECORATIVE_IMG = re.compile(r"(logo|icon|banner|sprite|avatar|favicon|arrow|button)", re.I)
 
 _TOPIC_HINTS: dict[str, tuple[str, ...]] = {
     "admission": ("admission", "admit", "apply", "application", "prospectus", "brochure", "entrance"),
@@ -56,11 +61,51 @@ def _score_link(url: str, label: str, query: str) -> int:
         score += 4
     if _FILE_DOC.search(url):
         score += 3
+    if _FILE_IMG.search(url):
+        score += 2
     if _is_official_url(url):
         score += 5
     if "blog" in blob:
         score -= 8
+    if _DECORATIVE_IMG.search(blob):
+        score -= 6
     return score
+
+
+def _extract_image_assets(html: str, page_url: str, query: str) -> list[dict[str, Any]]:
+    title_m = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+    page_title = _clean_text(title_m.group(1)) if title_m else page_url
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in _IMG_SRC_RE.finditer(html):
+        src = match.group(1).strip()
+        alt = _clean_text(match.group(2) or "")
+        if not src or src.startswith("data:"):
+            continue
+        full = urljoin(page_url, src)
+        if not full.startswith("http") or full in seen:
+            continue
+        if not _FILE_IMG.search(full):
+            continue
+        label = alt or full.rsplit("/", 1)[-1]
+        if _DECORATIVE_IMG.search(label) or _DECORATIVE_IMG.search(full):
+            continue
+        score = _score_link(full, label, query)
+        if score < 3:
+            continue
+        seen.add(full)
+        items.append(
+            {
+                "type": "image",
+                "url": full,
+                "title": label[:200],
+                "page": page_url,
+                "page_title": page_title[:200],
+                "score": score,
+            }
+        )
+    items.sort(key=lambda x: x["score"], reverse=True)
+    return items[:4]
 
 
 def extract_assets_from_html(html: str, page_url: str, query: str, max_items: int = 10) -> list[dict[str, Any]]:
@@ -102,7 +147,10 @@ def extract_assets_from_html(html: str, page_url: str, query: str, max_items: in
         )
 
     items.sort(key=lambda x: x["score"], reverse=True)
-    return items[:max_items]
+    img_items = _extract_image_assets(html, page_url, query)
+    merged = items + [i for i in img_items if i["url"] not in seen]
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged[:max_items]
 
 
 def fetch_page_assets(page_url: str, query: str, max_items: int = 10) -> list[dict[str, Any]]:

@@ -32,7 +32,15 @@ from backend.app.pipeline.institution_disambiguation import (
     resolve_from_history,
     resolve_institution_from_reply,
 )
-from backend.app.pipeline.institution_catalog import PARENT_UNIVERSITY, resolve_constituent
+from backend.app.pipeline.institution_catalog import (
+    PARENT_UNIVERSITY,
+    get_crawl_seed_urls,
+    get_parent_university,
+    is_su_network,
+    is_vnsgu_network,
+    resolve_bare_su,
+    resolve_constituent,
+)
 from backend.app.pipeline.institution_web_resolver import (
     find_unknown_institution_tokens,
     format_web_institution_clarification,
@@ -457,7 +465,7 @@ class EduOrchestrator:
         pages = [r for r in resources if r.get("type") == "page"]
         docs = [r for r in resources if r.get("type") == "document"]
         images = [r for r in resources if r.get("type") == "image"]
-        parent = PARENT_UNIVERSITY.get(institution, "")
+        parent = get_parent_university(institution) or PARENT_UNIVERSITY.get(institution, "")
         return {
             "institution": institution or None,
             "parent_university": parent or None,
@@ -569,14 +577,16 @@ class EduOrchestrator:
                 else:
                     others.append(url)
 
-            # Crawl official menus/sub-menus for PDFs and syllabus pages (all institution queries).
+            # Crawl official menus/sub-menus for PDFs, pages, and informative images.
             if institution:
-                nav_seeds = list(
-                    dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:4])
+                nav_seeds = get_crawl_seed_urls(
+                    institution,
+                    list(dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:6])),
+                    user_query,
                 )
                 crawl = crawl_official_site(nav_seeds, user_query or institution, institution)
                 existing = {r.get("url") for r in resources}
-                for r in crawl.get("pdfs", []) + crawl.get("pages", []):
+                for r in crawl.get("pdfs", []) + crawl.get("pages", []) + crawl.get("images", []):
                     url = r.get("url")
                     if not url or url in seen or url in existing:
                         continue
@@ -588,6 +598,13 @@ class EduOrchestrator:
                         blocks.append(
                             f"[OFFICIAL-PDF] {r.get('title') or url}\n"
                             f"Type: PDF | Found via official site menu navigation\n"
+                            f"Direct link: {url}"
+                        )
+                        official.append(url)
+                    elif rtype == "image":
+                        blocks.append(
+                            f"[OFFICIAL-IMAGE] {r.get('title') or url}\n"
+                            f"Informative image from official website navigation\n"
                             f"Direct link: {url}"
                         )
                         official.append(url)
@@ -622,6 +639,8 @@ class EduOrchestrator:
         if resources:
             query_for_pdf = user_query or institution or (queries[0] if queries else "")
             max_pdfs = 1 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
+            if is_syllabus_query(user_query or "") and (is_su_network(institution) or is_vnsgu_network(institution)):
+                max_pdfs = max(max_pdfs, 2)
             resources = enrich_pdf_resources(
                 resources, query_for_pdf, max_pdfs=max_pdfs, institution=institution
             )
@@ -748,11 +767,19 @@ class EduOrchestrator:
             )
             return self._answer_resolved(session, text)
 
-        # Expand unambiguous short names early (VNSGU, IIT Bombay, …).
+        # Expand unambiguous short names early (VNSGU, SRKI, IIT Bombay, …).
         text = expand_institution_aliases(
             apply_resolutions(text, session.resolved_entities),
             session.resolved_entities,
         )
+
+        # Auto-resolve bare SU → Sarvajanik University in Gujarat/Surat context.
+        bare_su = resolve_bare_su(text)
+        if bare_su:
+            session.resolved_entities["su"] = bare_su
+            if not session.last_institution:
+                session.last_institution = bare_su
+            text = expand_institution_aliases(text, session.resolved_entities)
 
         # --- Unknown short name: search the web to identify the institution ---
         if not detect_institution(text, session.resolved_entities):

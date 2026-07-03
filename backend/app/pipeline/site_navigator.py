@@ -8,8 +8,9 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from backend.app.config import settings
-from backend.app.pipeline.official_links import is_junk_pdf, url_belongs_to_institution
-from backend.app.pipeline.page_assets import _asset_type, _clean_text, _HREF_RE
+from backend.app.pipeline.institution_catalog import get_crawl_limits
+from backend.app.pipeline.official_links import get_institution_domains, is_junk_pdf, url_belongs_to_institution
+from backend.app.pipeline.page_assets import _asset_type, _clean_text, _HREF_RE, _extract_image_assets
 from backend.app.pipeline.web_search import _http_get, search_web
 
 _SYLLABUS_WORDS = (
@@ -49,7 +50,11 @@ _PROGRAM_URL_HINTS: dict[str, tuple[str, ...]] = {
 _SEM_RE = re.compile(r"\bsem(?:ester)?[\s\-]*(\d+)\b", re.I)
 _YEAR_RE = re.compile(r"\b(20\d{2})[\s\-/]+(?:20)?(\d{2})\b")
 _MENU_BLOCK = re.compile(
-    r"<(?:nav|header|aside|div|ul)[^>]*(?:class|id)=[\"'][^\"']*(?:menu|nav|sidebar|academic)[^\"']*[\"'][^>]*>(.*?)</(?:nav|header|aside|div|ul)>",
+    r"<(?:nav|header|aside|div|ul|section)[^>]*(?:class|id)=[\"'][^\"']*(?:menu|nav|sidebar|academic|sub-menu|submenu|dropdown)[^\"']*[\"'][^>]*>(.*?)</(?:nav|header|aside|div|ul|section)>",
+    re.I | re.S,
+)
+_SUBMENU_BLOCK = re.compile(
+    r"<ul[^>]*(?:class|id)=[\"'][^\"']*(?:sub-menu|submenu|children|dropdown)[^\"']*[\"'][^>]*>(.*?)</ul>",
     re.I | re.S,
 )
 
@@ -87,6 +92,16 @@ def _query_topics(query: str) -> list[str]:
         if any(w in low for w in words):
             topics.append(topic)
     return topics
+
+
+def _same_institution_site(url: str, allowed_hosts: set[str]) -> bool:
+    if not allowed_hosts:
+        return True
+    try:
+        host = urlparse(url).netloc.lower().replace("www.", "")
+        return any(host == d or host.endswith(f".{d}") for d in allowed_hosts)
+    except Exception:
+        return False
 
 
 def _same_site(url: str, root_host: str) -> bool:
@@ -157,6 +172,8 @@ def _extract_links(html: str, page_url: str, nav_bonus: bool = False) -> list[tu
     if nav_bonus:
         for block in _MENU_BLOCK.findall(html):
             blocks.append(block)
+        for block in _SUBMENU_BLOCK.findall(html):
+            blocks.append(block)
     seen: set[tuple[str, str]] = set()
     for block in blocks:
         for href_raw, inner in _HREF_RE.findall(block):
@@ -183,7 +200,10 @@ def _min_pdf_score(intent: dict[str, Any]) -> int:
     return 12
 
 
-def _crawl_limits(is_syllabus: bool) -> tuple[int, int]:
+def _crawl_limits(is_syllabus: bool, institution: str = "") -> tuple[int, int]:
+    custom = get_crawl_limits(institution, is_syllabus)
+    if custom:
+        return custom
     if is_syllabus:
         return (14, 5)
     if settings.edu_fast_mode:
@@ -230,15 +250,16 @@ def crawl_official_site(
     query: str,
     institution: str = "",
 ) -> dict[str, list[dict[str, Any]]]:
-    """Priority crawl of menus/sub-menus for official PDFs and relevant pages."""
-    _ = institution
+    """Priority crawl of menus/sub-menus for official PDFs, pages, and informative images."""
     intent = parse_syllabus_intent(query)
     topics = _query_topics(query)
-    max_pages, max_depth = _crawl_limits(intent["is_syllabus"])
+    max_pages, max_depth = _crawl_limits(intent["is_syllabus"], institution)
     min_pdf = _min_pdf_score(intent)
+    allowed_hosts = get_institution_domains(institution) if institution else set()
 
     pdfs: list[dict[str, Any]] = []
     pages: list[dict[str, Any]] = []
+    images: list[dict[str, Any]] = []
     visited: set[str] = set()
     heap: list[tuple[int, int, str]] = []
 
@@ -250,6 +271,8 @@ def crawl_official_site(
     while heap and pages_scanned < max_pages:
         _, depth, url = heapq.heappop(heap)
         if url in visited or depth > max_depth:
+            continue
+        if institution and allowed_hosts and not url_belongs_to_institution(url, institution):
             continue
         visited.add(url)
 
@@ -268,6 +291,21 @@ def crawl_official_site(
                 )
             continue
 
+        if _asset_type(url) == "image":
+            label = url.rsplit("/", 1)[-1]
+            score = _score_nav_link(url, label, intent, depth, topics)
+            if score >= 5:
+                images.append(
+                    {
+                        "type": "image",
+                        "url": url,
+                        "title": label,
+                        "score": score,
+                        "source": "site_nav",
+                    }
+                )
+            continue
+
         try:
             html = _http_get(url, timeout=10 if intent["is_syllabus"] else 8)
         except Exception:
@@ -276,14 +314,20 @@ def crawl_official_site(
             continue
         pages_scanned += 1
 
+        for img in _extract_image_assets(html, url, query):
+            iu = img.get("url", "")
+            if iu and iu not in visited:
+                images.append({**img, "source": "site_nav", "score": img.get("score", 5) + 2})
+
         root_host = urlparse(url).netloc.lower().replace("www.", "")
         for link, label in _extract_links(html, url, nav_bonus=True):
             if institution and not url_belongs_to_institution(link, institution):
                 continue
             score = _score_nav_link(link, label, intent, depth + 1, topics)
-            if _asset_type(link) == "pdf" and is_junk_pdf(label, link):
+            link_type = _asset_type(link)
+            if link_type == "pdf" and is_junk_pdf(label, link):
                 continue
-            if _asset_type(link) == "pdf" and score >= min_pdf:
+            if link_type == "pdf" and score >= min_pdf:
                 pdfs.append(
                     {
                         "type": "pdf",
@@ -294,24 +338,42 @@ def crawl_official_site(
                         "source": "site_nav",
                     }
                 )
-            elif _asset_type(link) == "page" and score >= 6 and _same_site(link, root_host):
-                pages.append(
+            elif link_type == "image" and score >= 5:
+                images.append(
                     {
-                        "type": "page",
+                        "type": "image",
                         "url": link,
                         "title": label[:200] or link.rsplit("/", 1)[-1],
+                        "page": url,
                         "score": score,
                         "source": "site_nav",
                     }
                 )
-                if depth + 1 <= max_depth and link not in visited:
-                    heapq.heappush(heap, (-score, depth + 1, link))
+            elif link_type == "page" and score >= 6:
+                on_site = (
+                    _same_institution_site(link, allowed_hosts)
+                    if allowed_hosts
+                    else _same_site(link, root_host)
+                )
+                if on_site:
+                    pages.append(
+                        {
+                            "type": "page",
+                            "url": link,
+                            "title": label[:200] or link.rsplit("/", 1)[-1],
+                            "score": score,
+                            "source": "site_nav",
+                        }
+                    )
+                    if depth + 1 <= max_depth and link not in visited:
+                        heapq.heappush(heap, (-score, depth + 1, link))
 
     if len(pdfs) < 3:
         pdfs.extend(_search_pdf_fallbacks(seed_urls, query, intent))
 
     pdfs.sort(key=lambda x: x.get("score", 0), reverse=True)
     pages.sort(key=lambda x: x.get("score", 0), reverse=True)
+    images.sort(key=lambda x: x.get("score", 0), reverse=True)
 
     def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen_u: set[str] = set()
@@ -324,7 +386,11 @@ def crawl_official_site(
             out.append(item)
         return out
 
-    return {"pdfs": _dedupe(pdfs)[:8], "pages": _dedupe(pages)[:8]}
+    return {
+        "pdfs": _dedupe(pdfs)[:8],
+        "pages": _dedupe(pages)[:8],
+        "images": _dedupe(images)[:6],
+    }
 
 
 def crawl_for_syllabus_pdfs(
