@@ -253,7 +253,65 @@ body {
   gap: 12px;
   align-items: flex-start;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
+
+.header-text { flex: 1; min-width: 240px; }
+
+.header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.user-badge {
+  font-size: 0.78rem;
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 4px 12px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.admin-link:hover { text-decoration: underline; }
+
+.ground-tag {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 0.72rem;
+  color: #166534;
+}
+
+.ground-tag.dataset {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.step-detail {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.hidden { display: none !important; }
 
 .logo { font-size: 2rem; }
 

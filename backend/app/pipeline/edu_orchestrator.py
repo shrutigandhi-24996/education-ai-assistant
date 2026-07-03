@@ -32,11 +32,13 @@ from backend.app.pipeline.institution_disambiguation import (
     resolve_from_history,
     resolve_institution_from_reply,
 )
+from backend.app.pipeline.institution_catalog import PARENT_UNIVERSITY, resolve_constituent
 from backend.app.pipeline.institution_web_resolver import (
     find_unknown_institution_tokens,
     format_web_institution_clarification,
     search_institution_by_short_name,
 )
+from backend.app.pipeline.local_dataset import try_local_curriculum_block
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import (
     filter_resources_for_institution,
@@ -468,12 +470,51 @@ class EduOrchestrator:
         known_institution: str | None,
     ) -> str:
         """Prefer institution named in the CURRENT message over LLM/history."""
+        constituent = resolve_constituent(text)
+        if constituent:
+            return constituent
         llm_inst = (analysis.get("institution") or "").strip()
         if known_institution:
             return known_institution
         if llm_inst:
             return llm_inst
         return (session.last_institution or "").strip()
+
+    def _build_grounding_meta(
+        self,
+        institution: str,
+        sources: list[str],
+        resources: list[dict[str, Any]],
+        dataset_meta: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        pdfs = [r for r in resources if r.get("type") == "pdf"]
+        pages = [r for r in resources if r.get("type") == "page"]
+        docs = [r for r in resources if r.get("type") == "document"]
+        images = [r for r in resources if r.get("type") == "image"]
+        parent = PARENT_UNIVERSITY.get(institution, "")
+        return {
+            "institution": institution or None,
+            "parent_university": parent or None,
+            "pdf_count": len(pdfs),
+            "page_count": len(pages),
+            "document_count": len(docs),
+            "image_count": len(images),
+            "link_count": len(sources or []),
+            "pdf_read": sum(1 for r in pdfs if r.get("has_content")),
+            "dataset_used": bool(dataset_meta),
+            "datasets": [dataset_meta["name"]] if dataset_meta else [],
+            "sources_summary": " + ".join(
+                p
+                for p in [
+                    f"{len(pdfs)} PDF(s)" if pdfs else "",
+                    f"{len(pages)} page(s)" if pages else "",
+                    "local dataset" if dataset_meta else "",
+                    f"{len(sources or [])} link(s)" if sources else "",
+                ]
+                if p
+            )
+            or "web search",
+        }
 
     def _gather_web_context(
         self, queries: list[str], institution: str = "", user_query: str = ""
@@ -886,9 +927,15 @@ class EduOrchestrator:
         force_web = is_institution_q or self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
         resources: list[dict[str, Any]] = []
+        dataset_meta: dict[str, Any] | None = None
+        local_block, dataset_meta = try_local_curriculum_block(
+            text, institution, session.resolved_entities
+        )
         if force_web or analysis.get("needs_web_search"):
             queries = self._build_queries(text, analysis, institution)
             web_context, sources, resources = self._gather_web_context(queries, institution, text)
+        if local_block:
+            web_context = (local_block + "\n\n---\n\n" + web_context).strip() if web_context else local_block
 
         reply = self.llm.generate(
             text,
@@ -911,6 +958,7 @@ class EduOrchestrator:
         context = self._pragmatic_context(analysis, intents, institution)
         if session.resolved_entities:
             context["ResolvedTerms"] = dict(session.resolved_entities)
+        grounding = self._build_grounding_meta(institution, sources or [], resources or [], dataset_meta)
         return {
             "reply": reply,
             "intent": intents[0] if intents else "general_query",
@@ -922,6 +970,7 @@ class EduOrchestrator:
             "confidence": 1.0,
             "sources": sources or None,
             "resources": resources or None,
+            "grounding": grounding,
             "source": "llm+web" if sources else "llm",
         }
 

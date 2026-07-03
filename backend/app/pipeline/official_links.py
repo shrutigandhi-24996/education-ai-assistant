@@ -20,6 +20,14 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         "contact": [
             "https://vnsguj.ac.in/contact_us.php",
         ],
+        "syllabus": [
+            "https://www.vnsgu.ac.in/",
+            "https://www.vnsguj.ac.in/",
+        ],
+        "academics": [
+            "https://www.vnsgu.ac.in/",
+            "https://www.vnsguj.ac.in/affiliated_colleges.php",
+        ],
     },
     "Shree Ramkrishna Institute of Computer Education and Applied Sciences": {
         "default": ["https://www.srki.ac.in/"],
@@ -55,6 +63,12 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
     "Sardar Vallabhbhai National Institute of Technology Surat": {
         "default": ["https://www.svnit.ac.in/"],
         "admission": ["https://www.svnit.ac.in/admission"],
+    },
+    "Sarvajanik University": {
+        "default": ["https://www.sarvajanikuniversity.edu.in/"],
+        "syllabus": ["https://www.sarvajanikuniversity.edu.in/"],
+        "academics": ["https://www.sarvajanikuniversity.edu.in/"],
+        "admission": ["https://www.sarvajanikuniversity.edu.in/"],
     },
 }
 
@@ -120,6 +134,7 @@ def get_official_search_results(institution: str, query: str = "") -> list[dict]
 # Known domain roots per institution (used to block cross-college URL mixing).
 _INSTITUTION_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     "Shree Ramkrishna Institute of Computer Education and Applied Sciences": ("srki.ac.in",),
+    "Sarvajanik University": ("sarvajanikuniversity.edu.in", "srki.ac.in"),
     "Gujarat Technological University": ("gtu.ac.in",),
     "Veer Narmad South Gujarat University": ("vnsgu.ac.in", "vnsguj.ac.in", "vnsguadm.samarth.edu.in", "vnsgu.net"),
     "Sardar Vallabhbhai National Institute of Technology Surat": ("svnit.ac.in",),

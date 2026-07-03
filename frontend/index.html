@@ -22,12 +22,17 @@
 
       <span class="logo" aria-hidden="true">🎓</span>
 
-      <div>
+      <div class="header-text">
 
         <h1>Innovative Educational Chatbot</h1>
 
-        <p class="subtitle">Ask anything about education — admissions, any college/university, scholarships, departments, faculty, exams &amp; career guidance. Your query details appear live in the panel on the right.</p>
+        <p class="subtitle">Grounded answers from official websites, PDFs, documents, images &amp; local datasets (SRKI, SU, VNSGU &amp; worldwide). Watch the <strong>Query insight</strong> panel live on the right — it stays visible and updates step-by-step.</p>
 
+      </div>
+
+      <div class="header-actions">
+        <span id="user-badge" class="user-badge hidden" title="Your user ID for admin logs"></span>
+        <a class="admin-link" href="/admin" target="_blank" rel="noopener">Admin panel ↗</a>
       </div>
 
     </header>
@@ -87,6 +92,14 @@
 
           <div class="label-row">
 
+            <dt>Processing</dt>
+
+            <dd id="lbl-processing">Ready — waiting for your question</dd>
+
+          </div>
+
+          <div class="label-row">
+
             <dt>Question</dt>
 
             <dd id="lbl-question">—</dd>
@@ -106,6 +119,22 @@
             <dt>Multi-intent</dt>
 
             <dd id="lbl-multi">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Institution</dt>
+
+            <dd id="lbl-institution">—</dd>
+
+          </div>
+
+          <div class="label-row">
+
+            <dt>Grounding</dt>
+
+            <dd id="lbl-grounding">—</dd>
 
           </div>
 
@@ -149,7 +178,7 @@
 
       <h2 id="email-modal-title">Sign in with your email</h2>
 
-      <p class="modal-text">Enter your Gmail or email, then click <strong>Continue</strong>. After that the <strong>Send</strong> button will work for your questions.</p>
+      <p class="modal-text">Enter your <strong>email (user ID)</strong> to start. Every question is saved in the admin database with your email for multi-user tracking.</p>
 
       <form id="email-form">
 

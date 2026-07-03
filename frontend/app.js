@@ -7,9 +7,12 @@ const labelPanel = document.getElementById("query-labels");
 const labelStatus = document.getElementById("label-status");
 const lbl = {
   email: document.getElementById("lbl-email"),
+  processing: document.getElementById("lbl-processing"),
   question: document.getElementById("lbl-question"),
   intent: document.getElementById("lbl-intent"),
   multi: document.getElementById("lbl-multi"),
+  institution: document.getElementById("lbl-institution"),
+  grounding: document.getElementById("lbl-grounding"),
   context: document.getElementById("lbl-context"),
   answer: document.getElementById("lbl-answer"),
   sources: document.getElementById("lbl-sources"),
@@ -17,6 +20,8 @@ const lbl = {
 const USER_KEY = "edu_assistant_user_email";
 const LEGACY_USER_KEY = "edu_assistant_user_id";
 const SESSION_KEY = "edu_assistant_session_id";
+const INSIGHT_KEY = "edu_query_insight_state";
+const userBadge = document.getElementById("user-badge");
 
 function isValidEmail(v) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -31,6 +36,55 @@ function getUserId() {
 function setUserId(email) {
   localStorage.setItem(USER_KEY, email.trim().toLowerCase());
   localStorage.removeItem(LEGACY_USER_KEY);
+  updateUserBadge(email);
+}
+
+function updateUserBadge(email) {
+  if (!userBadge) return;
+  if (email) {
+    userBadge.textContent = email;
+    userBadge.classList.remove("hidden");
+  } else {
+    userBadge.classList.add("hidden");
+  }
+}
+
+function saveInsightState(state) {
+  try {
+    sessionStorage.setItem(INSIGHT_KEY, JSON.stringify(state));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function loadInsightState() {
+  try {
+    const raw = sessionStorage.getItem(INSIGHT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function applyInsightState(state) {
+  if (!state) return;
+  if (state.email) setLabel(lbl.email, escapeHtml(state.email));
+  if (state.processing) setLabel(lbl.processing, escapeHtml(state.processing));
+  if (state.question) setLabel(lbl.question, escapeHtml(state.question));
+  if (state.intent) setLabel(lbl.intent, state.intent);
+  if (state.multi) setLabel(lbl.multi, state.multi);
+  if (state.institution) setLabel(lbl.institution, escapeHtml(state.institution));
+  if (state.grounding) setLabel(lbl.grounding, state.grounding);
+  if (state.context) {
+    lbl.context.classList.add("mono");
+    setLabel(lbl.context, state.context);
+  }
+  if (state.answer) setLabel(lbl.answer, escapeHtml(state.answer));
+  if (state.sources) setLabel(lbl.sources, state.sources);
+  if (state.status) {
+    labelStatus.textContent = state.status;
+    labelStatus.className = state.statusClass || "label-status done";
+  }
 }
 
 function getSessionId() {
@@ -89,6 +143,7 @@ function applySearchStep(index) {
     labelStatus.className = "label-status running";
   }
   if (statusEl) statusEl.textContent = s.step;
+  setLabel(lbl.processing, `${s.icon} ${s.title}<br><span class="step-detail">${escapeHtml(s.step)}</span>`, true);
   setLabel(lbl.intent, s.intent, true);
   setLabel(lbl.multi, s.multi, true);
   setLabel(lbl.context, s.context, true);
@@ -102,6 +157,8 @@ function startSearchMode(email, question) {
   searchStepIndex = 0;
   setLabel(lbl.email, escapeHtml(email));
   setLabel(lbl.question, escapeHtml(question));
+  setLabel(lbl.institution, "Detecting…", true);
+  setLabel(lbl.grounding, "Collecting official sources…", true);
   lbl.context.classList.add("mono");
   applySearchStep(0);
   searchStepTimer = setInterval(() => {
@@ -151,7 +208,8 @@ function ensureUserEmail() {
       setUserId(email);
       userId = email;
       closeEmailModal();
-      showLabelsIdle();
+      initInsightPanel();
+      setChatEnabled(true);
       emailForm.removeEventListener("submit", onSubmit);
       resolve(email);
     };
@@ -160,12 +218,12 @@ function ensureUserEmail() {
 }
 
 const SUGGESTIONS = [
-  "Admission process & fees at Stanford University",
-  "Scholarships for international students in Canada",
-  "What is VNSGU's admission process for 2026?",
-  "How do I become a data scientist after BSc IT?",
-  "Top universities for an MBA in the UK",
-  "MIT computer science department and official website",
+  "SRKI BSc IT sem-1 syllabus",
+  "VNSGU admission 2026 fees and eligibility",
+  "GTU BCA syllabus sem 2",
+  "SU Sarvajanik University constituent colleges",
+  "VNSGU official website and affiliated colleges",
+  "SRKI admission corner 2026",
 ];
 
 function setLabel(el, html, pending = false) {
@@ -241,18 +299,46 @@ function formatSourcesList(sources, resources) {
   return formatResourcesList(resources, sources);
 }
 
-function showLabelsIdle() {
+function formatGrounding(g) {
+  if (!g) return "—";
+  const parts = [];
+  if (g.datasets && g.datasets.length) {
+    parts.push(`<span class="ground-tag dataset">📚 ${escapeHtml(g.datasets.join(", "))}</span>`);
+  }
+  if (g.pdf_count) parts.push(`<span class="ground-tag">📄 ${g.pdf_count} PDF(s)${g.pdf_read ? ` · ${g.pdf_read} read` : ""}</span>`);
+  if (g.page_count) parts.push(`<span class="ground-tag">🌐 ${g.page_count} page(s)</span>`);
+  if (g.image_count) parts.push(`<span class="ground-tag">🖼️ ${g.image_count} image(s)</span>`);
+  if (g.link_count) parts.push(`<span class="ground-tag">🔗 ${g.link_count} link(s)</span>`);
+  if (g.parent_university) {
+    parts.push(`<span class="ground-tag">🏛️ Parent: ${escapeHtml(g.parent_university)}</span>`);
+  }
+  return parts.length ? parts.join(" ") : escapeHtml(g.sources_summary || "web search");
+}
+
+function initInsightPanel() {
   labelPanel.classList.remove("is-running");
-  labelStatus.textContent = "Waiting for query";
+  const saved = loadInsightState();
+  if (saved) {
+    applyInsightState(saved);
+    return;
+  }
+  labelStatus.textContent = "Ready";
   labelStatus.className = "label-status idle";
-  setLabel(lbl.email, userId || "—");
+  setLabel(lbl.email, escapeHtml(userId || "—"));
+  setLabel(lbl.processing, "Ready — ask a question below");
   setLabel(lbl.question, "—");
   setLabel(lbl.intent, "—");
   setLabel(lbl.multi, "—");
-  setLabel(lbl.context, "—");
+  setLabel(lbl.institution, "—");
+  setLabel(lbl.grounding, "—");
   lbl.context.classList.remove("mono");
+  setLabel(lbl.context, "—");
   setLabel(lbl.answer, "—");
   setLabel(lbl.sources, "—");
+}
+
+function showLabelsIdle() {
+  initInsightPanel();
 }
 
 function showLabelsLoading(email, question) {
@@ -264,8 +350,12 @@ function showLabelsResult(email, question, data) {
   labelPanel.classList.remove("is-running");
   labelStatus.textContent = "Complete";
   labelStatus.className = "label-status done";
+  const inst = data.institution || (data.context && data.context.Institution && data.context.Institution[0]) || "—";
   setLabel(lbl.email, escapeHtml(email));
   setLabel(lbl.question, escapeHtml(question));
+  setLabel(lbl.processing, "✅ Complete — all steps finished");
+  setLabel(lbl.institution, escapeHtml(inst));
+  setLabel(lbl.grounding, formatGrounding(data.grounding));
   setLabel(lbl.intent, data.intent
     ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>`
     : "—");
@@ -278,6 +368,20 @@ function showLabelsResult(email, question, data) {
   const answerPreview = (data.reply || "—").replace(/\s+/g, " ").slice(0, 1200);
   setLabel(lbl.answer, escapeHtml(answerPreview));
   setLabel(lbl.sources, formatSourcesList(data.sources, data.resources));
+  saveInsightState({
+    email,
+    processing: "Complete",
+    question,
+    intent: data.intent ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>` : "—",
+    multi: formatMultiIntent(data.intents, data.is_multi_intent || (data.intents && data.intents.length > 1)),
+    institution: inst,
+    grounding: formatGrounding(data.grounding),
+    context: formatContext(data.context),
+    answer: escapeHtml(answerPreview),
+    sources: formatSourcesList(data.sources, data.resources),
+    status: "Complete",
+    statusClass: "label-status done",
+  });
 }
 
 function showLabelsError(email, question, message) {
@@ -651,8 +755,9 @@ form.addEventListener("submit", async (e) => {
 function initApp() {
   renderSuggestions();
   refreshHealth();
-  showLabelsIdle();
-  setChatEnabled(true);
+  updateUserBadge(userId);
+  initInsightPanel();
+  setChatEnabled(!!userId);
   if (!userId) {
     openEmailModal();
   }

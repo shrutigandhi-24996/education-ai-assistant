@@ -98,6 +98,7 @@ INSTITUTION_ALIASES: dict[str, str] = {
     "ramkrishna institute": "Shree Ramkrishna Institute of Computer Education and Applied Sciences",
     "sarvajanik university": "Sarvajanik University",
     "sarvajanik": "Sarvajanik University",
+    "su surat": "Sarvajanik University",
     "svnit": "Sardar Vallabhbhai National Institute of Technology Surat",
     "nit surat": "Sardar Vallabhbhai National Institute of Technology Surat",
     "jnu": "Jawaharlal Nehru University",
