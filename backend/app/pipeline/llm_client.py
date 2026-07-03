@@ -61,22 +61,19 @@ ACCURACY / ANTI-HALLUCINATION (very important):
 LINKS & OFFICIAL DOCUMENTS (always do this when WEB CONTEXT is present):
 - WEB CONTEXT may include tags: [OFFICIAL-PDF], [OFFICIAL-DOC], [OFFICIAL-PAGE], [OFFICIAL-IMAGE], [OFFICIAL-PDF-CONTENT].
 - When [OFFICIAL-PDF-CONTENT] is present, base specific facts (dates, fees, eligibility, syllabus, rules)
-  primarily on that extracted PDF text. Quote the relevant lines and cite the PDF link inline.
+  primarily on that extracted PDF text. Quote the relevant lines briefly in your short answer.
 - Syllabus PDFs may be found by navigating official site menus (Academics → Syllabus → course → semester).
   Use that content when present; if no PDF is available, answer from other official web context and say so clearly.
-- When the user asks about admissions, fees, courses, departments, syllabus, or exams, you MUST list
-  matching **PDFs and official documents** from the WEB CONTEXT under a "📄 Official PDFs & documents" section.
-- Link directly to PDFs/files the user can open (prospectus, fee structure, syllabus, brochure, notification).
-- Also list **official web pages** with brief notes on what each page contains.
-- If informative **images** are in WEB CONTEXT, mention them with direct links.
-- NEVER invent PDF or file URLs — only use links present in WEB CONTEXT.
-- For ANY college/university/school question, include official website links from WEB CONTEXT.
-- Tell the user they can open PDFs directly in the chat or in a new tab to verify details.
+- The chat UI displays PDFs, documents, and informative images FIRST (above your text). Do NOT list PDF/file
+  URLs or duplicate "Official PDFs & documents" sections in your reply — the user already sees them inline.
+- NEVER invent PDF or file URLs.
 
 ANSWER FORMAT:
-- Write clear, well-justified paragraphs (complete sentences, logical flow).
-- Use headings and bullet points where helpful.
-- Separate summary, key facts from PDF/official sources, and next steps.
+- Answer ONLY the user's current question. Do NOT repeat or summarize answers from earlier chat turns.
+- When PDFs, documents, or images are in WEB CONTEXT: keep the reply SHORT (2–5 sentences or a few tight bullets)
+  with key facts from those sources. Skip long paragraphs and link lists.
+- When no PDF/document/image applies: use clear, justified paragraphs with headings/bullets as needed.
+- Separate key facts from next steps briefly; avoid redundant source listings.
 
 SYLLABUS ANSWERS (critical):
 - When the user asks for a syllabus, structure the reply as: **Course & semester** → **Subjects/units/credits** (only from PDF/page content) → **Official PDF link**.
@@ -188,7 +185,7 @@ class LLMClient:
             f"User role: {role}\n"
             f"Detected intents: {intents}\n\n"
             f"WEB CONTEXT (use only this for specific facts; cite the links):\n{context_block}\n\n"
-            f"User question: {message}"
+            f"User question (answer THIS only — do not repeat prior answers): {message}"
         )
         msgs: list[dict[str, str]] = [{"role": "system", "content": GENERATE_SYSTEM}]
         if history:
@@ -196,10 +193,16 @@ class LLMClient:
         msgs.append({"role": "user", "content": user_block})
         if high_accuracy or is_syllabus_in_context(web_context):
             model = settings.groq_model
-            max_tok = 900
+            max_tok = 700
         else:
             model = settings.groq_fast_model if settings.edu_fast_mode else settings.groq_model
-            max_tok = 600 if settings.edu_fast_mode else settings.llm_max_tokens
+            max_tok = 450 if settings.edu_fast_mode else settings.llm_max_tokens
+        has_media = any(
+            tag in (web_context or "").lower()
+            for tag in ("[official-pdf", "[official-doc", "[official-image", "official-pdf-content")
+        )
+        if has_media and max_tok > 500:
+            max_tok = 500
         return self._chat(msgs, model=model, max_tokens=max_tok).strip()
 
 

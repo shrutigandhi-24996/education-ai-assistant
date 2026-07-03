@@ -80,6 +80,8 @@
 
         </div>
 
+        <div class="labels-panel-scroll">
+
         <dl class="label-list">
 
           <div class="label-row">
@@ -132,14 +134,6 @@
 
           <div class="label-row">
 
-            <dt>Grounding</dt>
-
-            <dd id="lbl-grounding">—</dd>
-
-          </div>
-
-          <div class="label-row">
-
             <dt>Context</dt>
 
             <dd id="lbl-context" class="mono">—</dd>
@@ -164,6 +158,17 @@
 
         </dl>
 
+        <div class="insight-history-wrap">
+          <div class="insight-history-head">
+            <h3>Session history</h3>
+            <span id="history-count" class="history-count">0 queries</span>
+          </div>
+          <p class="insight-history-hint">All queries in this browser session — click any row to view its insight again.</p>
+          <div id="insight-history" class="insight-history" role="list" aria-label="Session query history"></div>
+        </div>
+
+        </div>
+
       </aside>
 
     </div>
@@ -180,13 +185,15 @@
 
       <p class="modal-text">Enter your <strong>email (user ID)</strong> to start. Every question is saved in the admin database with your email for multi-user tracking.</p>
 
-      <form id="email-form">
+      <p id="email-login-error" class="email-login-error hidden" role="alert"></p>
+
+      <form id="email-form" novalidate>
 
         <input id="email-input" type="email" placeholder="you@gmail.com" required autocomplete="email" />
 
         <div class="modal-actions">
 
-          <button type="submit">Continue</button>
+          <button id="email-continue-btn" type="submit" class="primary">Continue</button>
 
         </div>
 
@@ -196,7 +203,7 @@
 
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 
 </body>
 

@@ -12,7 +12,6 @@ const lbl = {
   intent: document.getElementById("lbl-intent"),
   multi: document.getElementById("lbl-multi"),
   institution: document.getElementById("lbl-institution"),
-  grounding: document.getElementById("lbl-grounding"),
   context: document.getElementById("lbl-context"),
   answer: document.getElementById("lbl-answer"),
   sources: document.getElementById("lbl-sources"),
@@ -21,7 +20,12 @@ const USER_KEY = "edu_assistant_user_email";
 const LEGACY_USER_KEY = "edu_assistant_user_id";
 const SESSION_KEY = "edu_assistant_session_id";
 const INSIGHT_KEY = "edu_query_insight_state";
+const INSIGHT_HISTORY_KEY = "edu_query_insight_history";
 const userBadge = document.getElementById("user-badge");
+const insightHistoryEl = document.getElementById("insight-history");
+const historyCountEl = document.getElementById("history-count");
+let currentHistoryId = null;
+let activeHistoryId = null;
 
 function isValidEmail(v) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -34,9 +38,14 @@ function getUserId() {
 }
 
 function setUserId(email) {
-  localStorage.setItem(USER_KEY, email.trim().toLowerCase());
-  localStorage.removeItem(LEGACY_USER_KEY);
-  updateUserBadge(email);
+  const normalized = email.trim().toLowerCase();
+  try {
+    localStorage.setItem(USER_KEY, normalized);
+    localStorage.removeItem(LEGACY_USER_KEY);
+  } catch (_) {
+    throw new Error("Could not save your email. Please allow cookies/storage for this site and try again.");
+  }
+  updateUserBadge(normalized);
 }
 
 function updateUserBadge(email) {
@@ -68,18 +77,19 @@ function loadInsightState() {
 
 function applyInsightState(state) {
   if (!state) return;
-  if (state.email) setLabel(lbl.email, escapeHtml(state.email));
-  if (state.processing) setLabel(lbl.processing, escapeHtml(state.processing));
+  if (state.email) setLabel(lbl.email, typeof state.email === "string" && state.email.includes("<") ? state.email : escapeHtml(state.email || ""));
+  if (state.processing) setLabel(lbl.processing, state.processing.includes("<") ? state.processing : escapeHtml(state.processing));
   if (state.question) setLabel(lbl.question, escapeHtml(state.question));
   if (state.intent) setLabel(lbl.intent, state.intent);
   if (state.multi) setLabel(lbl.multi, state.multi);
   if (state.institution) setLabel(lbl.institution, escapeHtml(state.institution));
-  if (state.grounding) setLabel(lbl.grounding, state.grounding);
   if (state.context) {
     lbl.context.classList.add("mono");
     setLabel(lbl.context, state.context);
+  } else {
+    lbl.context.classList.remove("mono");
   }
-  if (state.answer) setLabel(lbl.answer, escapeHtml(state.answer));
+  if (state.answer) setLabel(lbl.answer, state.answer.includes("<") ? state.answer : escapeHtml(state.answer));
   if (state.sources) setLabel(lbl.sources, state.sources);
   if (state.status) {
     labelStatus.textContent = state.status;
@@ -87,13 +97,138 @@ function applyInsightState(state) {
   }
 }
 
-function getSessionId() {
-  let id = sessionStorage.getItem(SESSION_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_KEY, id);
+function historyStorageKey() {
+  return `${INSIGHT_HISTORY_KEY}_${sessionId}`;
+}
+
+function loadInsightHistory() {
+  try {
+    const raw = sessionStorage.getItem(historyStorageKey());
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
   }
-  return id;
+}
+
+function saveInsightHistory(history) {
+  try {
+    sessionStorage.setItem(historyStorageKey(), JSON.stringify(history));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function formatHistoryTime(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch (_) {
+    return "";
+  }
+}
+
+function buildInsightStateFromData(email, question, data, answerPreview) {
+  const inst = data.institution || (data.context && data.context.Institution && data.context.Institution[0]) || "—";
+  const cleanPreview = stripDuplicateSourceSections(answerPreview);
+  return {
+    email,
+    processing: "✅ Complete — all steps finished",
+    question,
+    institution: inst,
+    intent: data.intent ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>` : "—",
+    multi: formatMultiIntent(data.intents, data.is_multi_intent || (data.intents && data.intents.length > 1)),
+    context: formatContext(data.context),
+    answer: escapeHtml(cleanPreview),
+    sources: formatSourcesList(data.sources, data.resources),
+    status: "Complete",
+    statusClass: "label-status done",
+  };
+}
+
+function upsertHistoryEntry(entry) {
+  const history = loadInsightHistory();
+  const idx = history.findIndex((h) => h.id === entry.id);
+  if (idx >= 0) {
+    history[idx] = { ...history[idx], ...entry };
+  } else {
+    history.push(entry);
+  }
+  if (history.length > 40) {
+    history.splice(0, history.length - 40);
+  }
+  saveInsightHistory(history);
+  renderSessionHistory(entry.id);
+  return entry;
+}
+
+function renderSessionHistory(highlightId) {
+  if (!insightHistoryEl) return;
+  const history = loadInsightHistory();
+  if (historyCountEl) {
+    historyCountEl.textContent = `${history.length} quer${history.length === 1 ? "y" : "ies"}`;
+  }
+  if (!history.length) {
+    insightHistoryEl.innerHTML = '<p class="insight-history-empty">No queries yet in this session.</p>';
+    return;
+  }
+  insightHistoryEl.innerHTML = "";
+  [...history].reverse().forEach((item) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "insight-history-item";
+    row.classList.add(item.status || "complete");
+    if (item.id === (highlightId || activeHistoryId)) row.classList.add("active");
+    row.setAttribute("role", "listitem");
+    row.dataset.id = String(item.id);
+
+    const statusLabel = item.status === "running" ? "⏳ Processing" : item.status === "error" ? "❌ Error" : "✅ Done";
+    const inst = item.institution && item.institution !== "—" ? item.institution : "";
+    const step = item.stepLabel ? `<span class="hist-step">${escapeHtml(item.stepLabel)}</span>` : "";
+
+    row.innerHTML =
+      `<span class="hist-top"><span class="hist-time">${formatHistoryTime(item.time)}</span>` +
+      `<span class="hist-status">${statusLabel}</span></span>` +
+      `<span class="hist-q">${escapeHtml(item.question || "—")}</span>` +
+      (inst ? `<span class="hist-inst">🏛️ ${escapeHtml(inst)}</span>` : "") +
+      step;
+
+    row.addEventListener("click", () => {
+      activeHistoryId = item.id;
+      if (item.state) {
+        applyInsightState(item.state);
+        saveInsightState(item.state);
+      }
+      renderSessionHistory(item.id);
+    });
+    insightHistoryEl.appendChild(row);
+  });
+  if (highlightId) activeHistoryId = highlightId;
+}
+
+function updateRunningHistoryStep(stepText) {
+  if (!currentHistoryId) return;
+  const history = loadInsightHistory();
+  const item = history.find((h) => h.id === currentHistoryId);
+  if (item && item.status === "running") {
+    item.stepLabel = stepText;
+    saveInsightHistory(history);
+    renderSessionHistory(currentHistoryId);
+  }
+}
+
+function getSessionId() {
+  try {
+    let id = sessionStorage.getItem(SESSION_KEY);
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(SESSION_KEY, id);
+    }
+    return id;
+  } catch (_) {
+    return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 }
 
 let userId = getUserId();
@@ -149,18 +284,53 @@ function applySearchStep(index) {
   setLabel(lbl.context, s.context, true);
   setLabel(lbl.answer, s.answer, true);
   setLabel(lbl.sources, s.sources, true);
+  updateRunningHistoryStep(s.step);
+  if (!currentHistoryId) return;
+  const history = loadInsightHistory();
+  const item = history.find((h) => h.id === currentHistoryId);
+  if (item && item.status === "running" && item.state) {
+    item.state.processing = `${s.icon} ${s.title}<br><span class="step-detail">${escapeHtml(s.step)}</span>`;
+    item.state.intent = s.intent;
+    item.state.multi = s.multi;
+    item.state.context = s.context;
+    item.state.answer = s.answer;
+    item.state.sources = s.sources;
+    saveInsightHistory(history);
+  }
 }
 
 function startSearchMode(email, question) {
   labelPanel.classList.add("is-running");
   searchBanner.classList.remove("hidden");
   searchStepIndex = 0;
+  currentHistoryId = Date.now();
+  activeHistoryId = currentHistoryId;
   setLabel(lbl.email, escapeHtml(email));
   setLabel(lbl.question, escapeHtml(question));
   setLabel(lbl.institution, "Detecting…", true);
-  setLabel(lbl.grounding, "Collecting official sources…", true);
   lbl.context.classList.add("mono");
   applySearchStep(0);
+  upsertHistoryEntry({
+    id: currentHistoryId,
+    time: new Date().toISOString(),
+    status: "running",
+    question,
+    institution: "—",
+    stepLabel: SEARCH_STEPS[0].step,
+    state: {
+      email,
+      processing: `${SEARCH_STEPS[0].icon} ${SEARCH_STEPS[0].title}`,
+      question,
+      institution: "Detecting…",
+      intent: SEARCH_STEPS[0].intent,
+      multi: SEARCH_STEPS[0].multi,
+      context: SEARCH_STEPS[0].context,
+      answer: SEARCH_STEPS[0].answer,
+      sources: SEARCH_STEPS[0].sources,
+      status: "Search mode",
+      statusClass: "label-status running",
+    },
+  });
   searchStepTimer = setInterval(() => {
     searchStepIndex += 1;
     applySearchStep(searchStepIndex);
@@ -181,13 +351,98 @@ function stopSearchMode() {
 
 function openEmailModal() {
   const modal = document.getElementById("email-modal");
+  if (!modal) return;
   modal.classList.remove("hidden");
+  hideEmailLoginError();
   const emailInput = document.getElementById("email-input");
   if (emailInput) emailInput.focus();
 }
 
 function closeEmailModal() {
-  document.getElementById("email-modal").classList.add("hidden");
+  const modal = document.getElementById("email-modal");
+  if (modal) modal.classList.add("hidden");
+  hideEmailLoginError();
+}
+
+function showEmailLoginError(message) {
+  const el = document.getElementById("email-login-error");
+  if (!el) {
+    alert(message);
+    return;
+  }
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function hideEmailLoginError() {
+  const el = document.getElementById("email-login-error");
+  if (el) {
+    el.textContent = "";
+    el.classList.add("hidden");
+  }
+}
+
+let pendingEmailResolve = null;
+
+function completeEmailLogin(email) {
+  try {
+    setUserId(email);
+  } catch (err) {
+    showEmailLoginError(err.message || "Could not sign in. Please try again.");
+    return;
+  }
+  userId = email.trim().toLowerCase();
+  closeEmailModal();
+  initInsightPanel();
+  setChatEnabled(true);
+  updateUserBadge(userId);
+  if (pendingEmailResolve) {
+    pendingEmailResolve(userId);
+    pendingEmailResolve = null;
+  }
+}
+
+function submitEmailLogin() {
+  hideEmailLoginError();
+  const inputEl = document.getElementById("email-input");
+  if (!inputEl) {
+    showEmailLoginError("Email field not found. Please refresh the page.");
+    return;
+  }
+  const email = inputEl.value.trim().toLowerCase();
+  if (!email) {
+    showEmailLoginError("Please enter your email address.");
+    inputEl.focus();
+    return;
+  }
+  if (!isValidEmail(email)) {
+    showEmailLoginError("Please enter a valid email address (e.g. you@gmail.com).");
+    inputEl.focus();
+    return;
+  }
+  completeEmailLogin(email);
+}
+
+function setupEmailLogin() {
+  const emailForm = document.getElementById("email-form");
+  const continueBtn = document.getElementById("email-continue-btn");
+  if (!emailForm) return;
+
+  if (emailForm.dataset.bound !== "1") {
+    emailForm.dataset.bound = "1";
+    emailForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitEmailLogin();
+    });
+  }
+
+  if (continueBtn && continueBtn.dataset.bound !== "1") {
+    continueBtn.dataset.bound = "1";
+    continueBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      submitEmailLogin();
+    });
+  }
 }
 
 function ensureUserEmail() {
@@ -196,24 +451,7 @@ function ensureUserEmail() {
   }
   openEmailModal();
   return new Promise((resolve) => {
-    const emailForm = document.getElementById("email-form");
-    const inputEl = document.getElementById("email-input");
-    const onSubmit = (e) => {
-      e.preventDefault();
-      const email = inputEl.value.trim().toLowerCase();
-      if (!isValidEmail(email)) {
-        alert("Please enter a valid email address (e.g. you@gmail.com).");
-        return;
-      }
-      setUserId(email);
-      userId = email;
-      closeEmailModal();
-      initInsightPanel();
-      setChatEnabled(true);
-      emailForm.removeEventListener("submit", onSubmit);
-      resolve(email);
-    };
-    emailForm.addEventListener("submit", onSubmit);
+    pendingEmailResolve = resolve;
   });
 }
 
@@ -299,24 +537,43 @@ function formatSourcesList(sources, resources) {
   return formatResourcesList(resources, sources);
 }
 
-function formatGrounding(g) {
-  if (!g) return "—";
-  const parts = [];
-  if (g.datasets && g.datasets.length) {
-    parts.push(`<span class="ground-tag dataset">📚 ${escapeHtml(g.datasets.join(", "))}</span>`);
+const SOURCE_SECTION_PATTERNS = [
+  /\n\n\*\*Official sources[\s\S]*$/i,
+  /\n\n\*\*📄 Official PDF[\s\S]*$/i,
+  /\n\n\*\*Official PDFs[\s\S]*$/i,
+  /\n\n📄 Official PDFs[\s\S]*$/i,
+  /\n\n\*\*Official PDFs & documents[\s\S]*$/i,
+  /\n\n\*\*🌐 Official web pages[\s\S]*$/i,
+  /\n\n\*\*📁 Official documents[\s\S]*$/i,
+  /\n\n\*\*🖼️ Informative images[\s\S]*$/i,
+  /\n\n\*\*🔗 Additional official links[\s\S]*$/i,
+  /\n\n\*\*📄 Syllabus PDF[\s\S]*$/i,
+  /\n\n\*\*📄 Official syllabus PDF[\s\S]*$/i,
+];
+
+function stripDuplicateSourceSections(text) {
+  if (!text) return "";
+  let cleaned = text.trim();
+  let prev = "";
+  while (cleaned !== prev) {
+    prev = cleaned;
+    for (const re of SOURCE_SECTION_PATTERNS) {
+      cleaned = cleaned.replace(re, "");
+    }
   }
-  if (g.pdf_count) parts.push(`<span class="ground-tag">📄 ${g.pdf_count} PDF(s)${g.pdf_read ? ` · ${g.pdf_read} read` : ""}</span>`);
-  if (g.page_count) parts.push(`<span class="ground-tag">🌐 ${g.page_count} page(s)</span>`);
-  if (g.image_count) parts.push(`<span class="ground-tag">🖼️ ${g.image_count} image(s)</span>`);
-  if (g.link_count) parts.push(`<span class="ground-tag">🔗 ${g.link_count} link(s)</span>`);
-  if (g.parent_university) {
-    parts.push(`<span class="ground-tag">🏛️ Parent: ${escapeHtml(g.parent_university)}</span>`);
-  }
-  return parts.length ? parts.join(" ") : escapeHtml(g.sources_summary || "web search");
+  return cleaned.trim();
+}
+
+function getSortedResources(resources, type) {
+  return (resources || [])
+    .filter((r) => (r.type || "page") === type)
+    .slice()
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
 function initInsightPanel() {
   labelPanel.classList.remove("is-running");
+  renderSessionHistory(activeHistoryId);
   const saved = loadInsightState();
   if (saved) {
     applyInsightState(saved);
@@ -330,7 +587,6 @@ function initInsightPanel() {
   setLabel(lbl.intent, "—");
   setLabel(lbl.multi, "—");
   setLabel(lbl.institution, "—");
-  setLabel(lbl.grounding, "—");
   lbl.context.classList.remove("mono");
   setLabel(lbl.context, "—");
   setLabel(lbl.answer, "—");
@@ -350,37 +606,19 @@ function showLabelsResult(email, question, data) {
   labelPanel.classList.remove("is-running");
   labelStatus.textContent = "Complete";
   labelStatus.className = "label-status done";
+  const answerPreview = stripDuplicateSourceSections((data.reply || "—").replace(/\s+/g, " ").slice(0, 1200));
+  const state = buildInsightStateFromData(email, question, data, answerPreview);
+  applyInsightState(state);
+  saveInsightState(state);
   const inst = data.institution || (data.context && data.context.Institution && data.context.Institution[0]) || "—";
-  setLabel(lbl.email, escapeHtml(email));
-  setLabel(lbl.question, escapeHtml(question));
-  setLabel(lbl.processing, "✅ Complete — all steps finished");
-  setLabel(lbl.institution, escapeHtml(inst));
-  setLabel(lbl.grounding, formatGrounding(data.grounding));
-  setLabel(lbl.intent, data.intent
-    ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>`
-    : "—");
-  setLabel(
-    lbl.multi,
-    formatMultiIntent(data.intents, data.is_multi_intent || (data.intents && data.intents.length > 1))
-  );
-  lbl.context.classList.add("mono");
-  setLabel(lbl.context, formatContext(data.context));
-  const answerPreview = (data.reply || "—").replace(/\s+/g, " ").slice(0, 1200);
-  setLabel(lbl.answer, escapeHtml(answerPreview));
-  setLabel(lbl.sources, formatSourcesList(data.sources, data.resources));
-  saveInsightState({
-    email,
-    processing: "Complete",
+  upsertHistoryEntry({
+    id: currentHistoryId || Date.now(),
+    time: new Date().toISOString(),
+    status: "complete",
     question,
-    intent: data.intent ? `<span class="intent-pill">${escapeHtml(data.intent)}</span>` : "—",
-    multi: formatMultiIntent(data.intents, data.is_multi_intent || (data.intents && data.intents.length > 1)),
     institution: inst,
-    grounding: formatGrounding(data.grounding),
-    context: formatContext(data.context),
-    answer: escapeHtml(answerPreview),
-    sources: formatSourcesList(data.sources, data.resources),
-    status: "Complete",
-    statusClass: "label-status done",
+    stepLabel: "",
+    state,
   });
 }
 
@@ -389,13 +627,29 @@ function showLabelsError(email, question, message) {
   labelPanel.classList.remove("is-running");
   labelStatus.textContent = "Error";
   labelStatus.className = "label-status idle";
-  setLabel(lbl.email, escapeHtml(email));
-  setLabel(lbl.question, escapeHtml(question));
-  setLabel(lbl.intent, "—");
-  setLabel(lbl.multi, "—");
-  setLabel(lbl.context, "—");
-  setLabel(lbl.answer, escapeHtml(message));
-  setLabel(lbl.sources, "—");
+  const state = {
+    email,
+    processing: "Error",
+    question,
+    institution: "—",
+    intent: "—",
+    multi: "—",
+    context: "—",
+    answer: escapeHtml(message),
+    sources: "—",
+    status: "Error",
+    statusClass: "label-status idle",
+  };
+  applyInsightState(state);
+  upsertHistoryEntry({
+    id: currentHistoryId || Date.now(),
+    time: new Date().toISOString(),
+    status: "error",
+    question,
+    institution: "—",
+    stepLabel: message,
+    state,
+  });
 }
 
 function escapeHtml(s) {
@@ -544,7 +798,7 @@ function createPdfViewer(pdf) {
   if (pdf.has_content) {
     const note = document.createElement("p");
     note.className = "pdf-note";
-    note.textContent = "Answer above is based on text read from this official PDF.";
+    note.textContent = "Short answer below is based on text read from this official PDF.";
     wrap.appendChild(note);
   }
 
@@ -573,6 +827,138 @@ function renderClarificationOptions(options, bubble) {
   bubble.appendChild(box);
 }
 
+function createDocumentCard(doc) {
+  const wrap = document.createElement("div");
+  wrap.className = "document-card-wrap";
+  const link = document.createElement("a");
+  link.className = "document-card";
+  link.href = doc.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.innerHTML =
+    `<span class="document-card-icon">📁</span>` +
+    `<span class="document-card-body">` +
+    `<span class="document-card-title">${escapeHtml(doc.title || "Official document")}</span>` +
+    `<span class="document-card-action">Open document ↗</span>` +
+    `</span>`;
+  wrap.appendChild(link);
+  return wrap;
+}
+
+function createImagePreview(img) {
+  const wrap = document.createElement("div");
+  wrap.className = "image-preview-wrap";
+  const title = document.createElement("div");
+  title.className = "image-preview-title";
+  title.textContent = `🖼️ ${img.title || "Informative image"}`;
+  const link = document.createElement("a");
+  link.href = img.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.className = "image-preview-link";
+  const imgEl = document.createElement("img");
+  imgEl.src = img.url;
+  imgEl.alt = img.title || "Informative image from official source";
+  imgEl.loading = "lazy";
+  imgEl.className = "image-preview-img";
+  link.appendChild(imgEl);
+  wrap.appendChild(title);
+  wrap.appendChild(link);
+  return wrap;
+}
+
+function appendAnswerMedia(bubble, resources) {
+  const mediaWrap = document.createElement("div");
+  mediaWrap.className = "answer-media-first";
+
+  const pdfs = getSortedResources(resources, "pdf");
+  const primaryPdf = pdfs.find((r) => r.has_content) || pdfs[0];
+  if (primaryPdf) {
+    mediaWrap.appendChild(createPdfViewer(primaryPdf));
+  }
+
+  getSortedResources(resources, "document")
+    .slice(0, 2)
+    .forEach((doc) => mediaWrap.appendChild(createDocumentCard(doc)));
+
+  getSortedResources(resources, "image")
+    .slice(0, 2)
+    .forEach((img) => mediaWrap.appendChild(createImagePreview(img)));
+
+  if (mediaWrap.childElementCount) {
+    bubble.appendChild(mediaWrap);
+    return true;
+  }
+  return false;
+}
+
+function appendSupplementarySources(bubble, sources, resources, primaryPdfUrl, includeAllResources) {
+  const shown = new Set((resources || []).map((r) => r.url));
+  if (primaryPdfUrl) shown.add(primaryPdfUrl);
+
+  if (includeAllResources) {
+    const box = document.createElement("div");
+    box.className = "sources";
+    const label = document.createElement("span");
+    label.className = "src-label";
+    label.textContent = "Official pages & sources:";
+    box.appendChild(label);
+    (resources || []).slice(0, 8).forEach((r) => {
+      const t = r.type || "page";
+      const a = document.createElement("a");
+      a.className = "src" + (t === "pdf" || t === "document" ? " official" : "");
+      a.href = r.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = `${resourceIcon(t)} ${r.title || hostOf(r.url)}`;
+      box.appendChild(a);
+    });
+    (sources || []).slice(0, 6).forEach((url) => {
+      if (shown.has(url)) return;
+      const a = document.createElement("a");
+      a.className = "src" + (isOfficial(url) ? " official" : "");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = (isOfficial(url) ? "🏛️ " : "🔗 ") + hostOf(url);
+      box.appendChild(a);
+    });
+    if (box.querySelectorAll("a").length) bubble.appendChild(box);
+    return;
+  }
+
+  const extraPages = getSortedResources(resources, "page").filter((r) => !shown.has(r.url));
+  const extraSources = (sources || []).filter((u) => !shown.has(u));
+  if (!extraPages.length && !extraSources.length) return;
+
+  const box = document.createElement("div");
+  box.className = "sources sources-compact";
+  const label = document.createElement("span");
+  label.className = "src-label";
+  label.textContent = "Related official pages:";
+  box.appendChild(label);
+
+  extraPages.slice(0, 4).forEach((r) => {
+    const a = document.createElement("a");
+    a.className = "src official";
+    a.href = r.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = `🌐 ${r.title || hostOf(r.url)}`;
+    box.appendChild(a);
+  });
+  extraSources.slice(0, 4).forEach((url) => {
+    const a = document.createElement("a");
+    a.className = "src" + (isOfficial(url) ? " official" : "");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = (isOfficial(url) ? "🏛️ " : "🔗 ") + hostOf(url);
+    box.appendChild(a);
+  });
+  bubble.appendChild(box);
+}
+
 function addMessage(role, text, sources, resources, clarificationOptions) {
   const row = document.createElement("div");
   row.className = "message";
@@ -584,76 +970,17 @@ function addMessage(role, text, sources, resources, clarificationOptions) {
   if (role === "bot") {
     bubble.classList.add("bot-reply");
 
+    const hasMedia = appendAnswerMedia(bubble, resources);
+    const cleanText = stripDuplicateSourceSections(text);
     const content = document.createElement("div");
-    content.className = "answer-text";
-    content.innerHTML = formatMarkdown(text);
+    content.className = "answer-text" + (hasMedia ? " answer-text-short" : "");
+    content.innerHTML = formatMarkdown(cleanText || text);
     bubble.appendChild(content);
 
-    const pdfs = (resources || []).filter((r) => r.type === "pdf");
-    const sortedPdfs = pdfs.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
-    const primaryPdf = sortedPdfs.find((r) => r.has_content) || sortedPdfs[0];
-    if (primaryPdf) {
-      bubble.appendChild(createPdfViewer(primaryPdf));
-    }
+    const pdfs = getSortedResources(resources, "pdf");
+    const primaryPdf = pdfs.find((r) => r.has_content) || pdfs[0];
+    appendSupplementarySources(bubble, sources, resources, primaryPdf && primaryPdf.url, !hasMedia);
 
-    const hasRes = (resources && resources.length) || (sources && sources.length);
-    if (hasRes) {
-      const box = document.createElement("div");
-      box.className = "sources";
-      const label = document.createElement("span");
-      label.className = "src-label";
-      label.textContent = "Official PDFs, pages & sources:";
-      box.appendChild(label);
-
-      if (resources && resources.length) {
-        resources.slice(0, 10).forEach((r) => {
-          const a = document.createElement("a");
-          const t = r.type || "page";
-          a.className = "src" + (t === "pdf" || t === "document" ? " official" : "");
-          a.href = r.url;
-          a.target = "_blank";
-          a.rel = "noopener";
-          const suffix = r.has_content && t === "pdf" ? " · read" : "";
-          a.textContent = `${resourceIcon(t)} ${r.title || hostOf(r.url)}${suffix}`;
-          if (t === "pdf") {
-            a.addEventListener("click", (e) => {
-              e.preventDefault();
-              const viewer = bubble.querySelector(".pdf-viewer-wrap");
-              const iframe = bubble.querySelector(".pdf-frame");
-              const toggle = bubble.querySelector(".pdf-toggle");
-              const fallback = bubble.querySelector(".pdf-fallback");
-              if (fallback) {
-                window.open(r.url, "_blank", "noopener");
-                return;
-              }
-              if (viewer && iframe && toggle) {
-                iframe.src = pdfProxyUrl(r.url);
-                iframe.classList.remove("hidden");
-                if (fallback) fallback.remove();
-                attachPdfEmbedGuard(viewer, iframe, r);
-                toggle.textContent = "Hide PDF";
-                viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
-              } else {
-                window.open(r.url, "_blank", "noopener");
-              }
-            });
-          }
-          box.appendChild(a);
-        });
-      }
-      const resUrls = new Set((resources || []).map((r) => r.url));
-      (sources || []).slice(0, 6).forEach((url) => {
-        if (resUrls.has(url)) return;
-        const a = document.createElement("a");
-        a.className = "src" + (isOfficial(url) ? " official" : "");
-        a.href = url;
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.textContent = (isOfficial(url) ? "🏛️ " : "🔗 ") + hostOf(url);
-        box.appendChild(a);
-      });
-      bubble.appendChild(box);
-    }
     if (clarificationOptions && clarificationOptions.length) {
       renderClarificationOptions(clarificationOptions, bubble);
     }
@@ -753,6 +1080,7 @@ form.addEventListener("submit", async (e) => {
 });
 
 function initApp() {
+  setupEmailLogin();
   renderSuggestions();
   refreshHealth();
   updateUserBadge(userId);

@@ -364,15 +364,20 @@ class EduOrchestrator:
         institution: str = "",
         resources: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Always surface clickable official links, PDFs, and page assets."""
+        """Surface links in reply only when the UI has nothing to show inline."""
         resources = resources or []
-        if not sources and not resources and institution:
+        has_rich_media = any(
+            r.get("type") in ("pdf", "document", "image") for r in resources
+        )
+        if has_rich_media or resources:
+            return reply
+        if not sources and institution:
             return (
                 reply
                 + f"\n\n**Official sources:** Search \"{institution} official website\" "
                 "for the latest verified information."
             )
-        if not sources and not resources:
+        if not sources:
             return reply
 
         lines: list[str] = [""]
@@ -381,36 +386,11 @@ class EduOrchestrator:
         else:
             lines.append("**Official sources & documents:**")
 
-        pdfs = [r for r in resources if r.get("type") == "pdf"]
-        docs = [r for r in resources if r.get("type") == "document"]
-        pages = [r for r in resources if r.get("type") == "page"]
-        images = [r for r in resources if r.get("type") == "image"]
-
-        if pdfs:
-            lines.append("\n**📄 Official PDFs (open directly):**")
-            for r in pdfs[:6]:
-                lines.append(f"- [{r.get('title', 'PDF')}]({r['url']})")
-        if docs:
-            lines.append("\n**📁 Official documents:**")
-            for r in docs[:4]:
-                lines.append(f"- [{r.get('title', 'Document')}]({r['url']})")
-        if pages:
-            lines.append("\n**🌐 Official web pages:**")
-            for r in pages[:5]:
-                lines.append(f"- [{r.get('title', self._link_label(r['url']))}]({r['url']})")
-        if images:
-            lines.append("\n**🖼️ Informative images:**")
-            for r in images[:3]:
-                lines.append(f"- [{r.get('title', 'Image')}]({r['url']})")
-
         official = [u for u in sources if self._is_official(u)]
         ordered = official + [u for u in sources if u not in official]
-        extra = [u for u in ordered if u not in {r["url"] for r in resources}][:6]
-        if extra:
-            lines.append("\n**🔗 Additional official links:**")
-            for u in extra:
-                tag = " *(official)*" if self._is_official(u) else ""
-                lines.append(f"- [{self._link_label(u)}]({u}){tag}")
+        for u in ordered[:6]:
+            tag = " *(official)*" if self._is_official(u) else ""
+            lines.append(f"- [{self._link_label(u)}]({u}){tag}")
 
         return reply + "\n".join(lines)
 
@@ -425,22 +405,8 @@ class EduOrchestrator:
             return reply
         pdfs = [r for r in (resources or []) if r.get("type") == "pdf"]
         pdfs = [r for r in pdfs if not is_junk_pdf(r.get("title", ""), r.get("url", ""))]
-        pdfs.sort(key=lambda r: r.get("score", 0), reverse=True)
-        read_pdfs = [r for r in pdfs if r.get("has_content")]
-        if read_pdfs:
-            top = read_pdfs[0]
-            note = (
-                f"\n\n**📄 Official syllabus PDF:** [{top.get('title', 'Syllabus PDF')}]({top['url']}) "
-                "(shown inline below — answer is based on text read from this file.)"
-            )
-            if note.strip() not in reply:
-                return reply + note
-            return reply
         if pdfs:
-            lines = ["\n\n**📄 Official syllabus PDF(s) found on the institution website:**"]
-            for r in pdfs[:3]:
-                lines.append(f"- [{r.get('title', 'Syllabus PDF')}]({r['url']})")
-            return reply + "\n".join(lines)
+            return reply
         if institution:
             syllabus_pages = [
                 u for u in get_official_urls(institution, user_query) if "syllabus" in u.lower()
