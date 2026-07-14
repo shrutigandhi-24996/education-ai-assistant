@@ -60,6 +60,7 @@ from backend.app.pipeline.official_links import (
     filter_resources_for_query,
     filter_urls_for_institution,
     get_curated_pdf_results,
+    get_fee_portal_urls,
     get_institution_domains,
     get_official_search_results,
     get_official_urls,
@@ -423,6 +424,48 @@ class EduOrchestrator:
             tag = " *(official)*" if self._is_official(u) else ""
             lines.append(f"- [{self._link_label(u)}]({u}){tag}")
 
+        return reply + "\n".join(lines)
+
+    def _ensure_fee_answer(
+        self,
+        reply: str,
+        resources: list[dict[str, Any]] | None,
+        institution: str,
+        user_query: str,
+    ) -> str:
+        """Always surface official fees page + embedded fee PDF links."""
+        if not is_fee_query(user_query):
+            return reply
+        fee_pages = get_fee_portal_urls(institution, user_query) or [
+            u for u in get_official_urls(institution, user_query) if "fee" in u.lower()
+        ]
+        fee_pdfs = [
+            r
+            for r in (resources or [])
+            if r.get("type") == "pdf" and not is_junk_pdf(r.get("title", ""), r.get("url", ""))
+        ]
+        if not fee_pdfs:
+            fee_pdfs = get_curated_pdf_results(institution, user_query)
+
+        low_reply = (reply or "").lower()
+        lines: list[str] = []
+        # Prefer a clear official-link block when the model skipped the links.
+        needs_page = fee_pages and not any(p.lower() in low_reply for p in fee_pages)
+        needs_pdf = fee_pdfs and not any((r.get("url") or "").lower() in low_reply for r in fee_pdfs)
+        if not needs_page and not needs_pdf:
+            return reply
+
+        lines.append("\n\n**Official SRKI fees sources:**" if institution and "Ramkrishna" in institution else "\n\n**Official fees sources:**")
+        for u in fee_pages[:2]:
+            if u.lower() not in low_reply:
+                lines.append(f"- Fees structure page: [{self._link_label(u)}]({u})")
+        for r in fee_pdfs[:2]:
+            u = r.get("url") or ""
+            if u and u.lower() not in low_reply:
+                title = r.get("title") or self._link_label(u)
+                lines.append(f"- Official fees PDF: [{title}]({u})")
+        if len(lines) <= 1:
+            return reply
         return reply + "\n".join(lines)
 
     def _ensure_syllabus_answer(
@@ -1054,6 +1097,7 @@ class EduOrchestrator:
             institution=institution,
         )
         reply = self._ensure_links(reply, sources, institution, resources)
+        reply = self._ensure_fee_answer(reply, resources, institution, text)
         reply = self._ensure_syllabus_answer(reply, resources, institution, text)
 
         session.history.append({"role": "user", "content": text})
