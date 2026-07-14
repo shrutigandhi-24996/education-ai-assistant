@@ -877,9 +877,12 @@ function createPortalCard(page) {
   link.rel = "noopener";
   const title = page.title || "Official page";
   const isContact = /contact|address/i.test(title) || /contact/i.test(page.url || "");
+  const isFee = /fee/i.test(title) || /fee/i.test(page.url || "");
   const action = isContact
     ? "Open official contact page for address &amp; phone ↗"
-    : "Open official page to select course &amp; semester ↗";
+    : isFee
+      ? "Open official fees structure page ↗"
+      : "Open official page to select course &amp; semester ↗";
   link.innerHTML =
     `<span class="portal-card-icon">🌐</span>` +
     `<span class="portal-card-body">` +

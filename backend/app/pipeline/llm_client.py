@@ -75,6 +75,9 @@ ANSWER FORMAT:
 - When no PDF/document/image applies: use clear, justified paragraphs with headings/bullets as needed.
 - Contact/address/phone queries: answer ONLY with address/contact facts and the official contact link.
   Do NOT mention syllabus PDFs or unrelated campus/testimonial images for these questions.
+- Fees queries: use [OFFICIAL-PDF-CONTENT] from the official fees PDF when present. Summarize programme-wise
+  fees clearly (course name + semester/year amounts). Always cite the official fees structure page
+  https://www.srki.ac.in/pages/fees-structure/ for SRKI. Do NOT invent fee amounts.
 - Separate key facts from next steps briefly; avoid redundant source listings.
 
 SYLLABUS ANSWERS (critical):

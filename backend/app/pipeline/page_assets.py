@@ -15,6 +15,10 @@ _FILE_PDF = re.compile(r"\.pdf(\?|#|$)", re.I)
 _FILE_DOC = re.compile(r"\.(doc|docx|xls|xlsx|ppt|pptx)(\?|#|$)", re.I)
 _FILE_IMG = re.compile(r"\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)", re.I)
 _HREF_RE = re.compile(r'<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+_IFRAME_SRC_RE = re.compile(
+    r'<(?:iframe|embed|object)\b[^>]*(?:src|data)=["\']([^"\']+)["\'][^>]*>',
+    re.I | re.S,
+)
 _IMG_SRC_RE = re.compile(
     r'<img\b[^>]*\bsrc=["\']([^"\']+)["\'][^>]*(?:\balt=["\']([^"\']*)["\'])?',
     re.I | re.S,
@@ -153,6 +157,33 @@ def extract_assets_from_html(html: str, page_url: str, query: str, max_items: in
     items.sort(key=lambda x: x["score"], reverse=True)
     img_items = _extract_image_assets(html, page_url, query)
     merged = items + [i for i in img_items if i["url"] not in seen]
+
+    # Official fee/syllabus pages often embed PDFs in iframes (not <a href>).
+    for src in _IFRAME_SRC_RE.findall(html):
+        src = src.strip()
+        if not src or src.startswith(("#", "javascript:", "about:")):
+            continue
+        full = urljoin(page_url, src)
+        if not full.startswith("http") or full in seen:
+            continue
+        atype = _asset_type(full)
+        if atype not in ("pdf", "document"):
+            continue
+        label = full.rsplit("/", 1)[-1]
+        score = _score_link(full, label, query) + 12
+        seen.add(full)
+        merged.append(
+            {
+                "type": atype,
+                "url": full,
+                "title": label[:200],
+                "page": page_url,
+                "page_title": page_title[:200],
+                "score": score,
+                "source": "iframe",
+            }
+        )
+
     merged.sort(key=lambda x: x["score"], reverse=True)
     return merged[:max_items]
 

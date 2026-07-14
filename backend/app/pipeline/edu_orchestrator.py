@@ -66,6 +66,7 @@ from backend.app.pipeline.official_links import (
     get_portal_page_resources,
     get_syllabus_portal_urls,
     is_contact_query,
+    is_fee_query,
     is_junk_pdf,
     query_wants_document_media,
     url_belongs_to_institution,
@@ -587,6 +588,7 @@ class EduOrchestrator:
         if institution and not seed_pages:
             seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
         contact_q = is_contact_query(user_query or "")
+        fee_q = is_fee_query(user_query or "")
         wants_media = query_wants_document_media(user_query or "")
         if institution and (is_srki_only(institution) or is_su_network(institution)):
             if contact_q and not wants_media:
@@ -594,6 +596,11 @@ class EduOrchestrator:
                 seed_pages = list(
                     dict.fromkeys(get_official_urls(institution, user_query) + official)
                 )[:3]
+            elif fee_q:
+                # Fees: prioritize fees-structure / payment pages so iframe PDF is discovered.
+                seed_pages = list(
+                    dict.fromkeys(get_official_urls(institution, user_query) + official)
+                )[:4]
             else:
                 seed_pages = list(
                     dict.fromkeys(
@@ -606,6 +613,8 @@ class EduOrchestrator:
             max_pg = 2 if (contact_q and not wants_media) else max(
                 settings.edu_asset_harvest_pages, get_asset_harvest_pages(institution)
             )
+            if fee_q:
+                max_pg = max(max_pg, 3)
             harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),
@@ -619,6 +628,16 @@ class EduOrchestrator:
                     or any(
                         w in f"{h.get('url', '')} {h.get('title', '')}".lower()
                         for w in ("contact", "address", "map", "location")
+                    )
+                ]
+            elif fee_q:
+                harvested = [
+                    h
+                    for h in harvested
+                    if h.get("type") in ("pdf", "document")
+                    or any(
+                        w in f"{h.get('url', '')} {h.get('title', '')}".lower()
+                        for w in ("fee", "fees", "tuition", "payment")
                     )
                 ]
             resources.extend(harvested)
@@ -642,7 +661,7 @@ class EduOrchestrator:
 
             # Crawl official menus/sub-menus for PDFs, pages, and informative images.
             # Skip deep media crawl for contact/address-only questions.
-            if institution and not (contact_q and not wants_media):
+            if institution and not (contact_q and not wants_media) and not fee_q:
                 nav_seeds = get_crawl_seed_urls(
                     institution,
                     list(dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:6])),
@@ -700,8 +719,8 @@ class EduOrchestrator:
                             f"{extract}\n"
                             f"Source: {page_url}"
                         )
-            elif institution and contact_q:
-                # Contact-only: extract text from contact / official pages for the address.
+            elif institution and (contact_q or fee_q):
+                # Contact/fee: extract text from the topic pages for accurate answers.
                 extract_urls = []
                 for u in seed_pages + official:
                     if u and u not in extract_urls and _asset_type(u) != "pdf":
@@ -720,6 +739,8 @@ class EduOrchestrator:
         if resources and wants_media:
             query_for_pdf = user_query or institution or (queries[0] if queries else "")
             max_pdfs = 1 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
+            if fee_q:
+                max_pdfs = max(max_pdfs, 1)
             if is_syllabus_query(user_query or "") and (
                 is_su_network(institution) or is_vnsgu_network(institution) or is_gtu_network(institution)
             ):
@@ -736,11 +757,15 @@ class EduOrchestrator:
             others = [u for u in others if url_belongs_to_institution(u, institution) or self._is_official(u)]
 
         resources = filter_resources_for_query(resources, user_query or "")
-        # Prefer official contact URLs first for address queries.
+        # Prefer official contact / fee URLs first for those queries.
         if contact_q:
             contact_urls = [u for u in official if "contact" in u.lower()]
             other_off = [u for u in official if u not in contact_urls]
             official = contact_urls + other_off
+        if fee_q:
+            fee_urls = [u for u in official if "fee" in u.lower()]
+            other_off = [u for u in official if u not in fee_urls]
+            official = fee_urls + other_off
 
         sources = list(dict.fromkeys(official + others))
         return "\n\n---\n\n".join(blocks), sources, resources
