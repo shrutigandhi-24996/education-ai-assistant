@@ -516,6 +516,28 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+.portal-card-wrap { margin: 0; }
+.portal-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 2px solid #6366f1;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.portal-card:hover {
+  border-color: #4338ca;
+  background: #eef2ff;
+}
+.portal-card-icon { font-size: 1.6rem; line-height: 1; }
+.portal-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.portal-card-title { font-weight: 700; font-size: 0.95rem; color: #312e81; }
+.portal-card-action { font-size: 0.82rem; color: #4338ca; font-weight: 600; }
+.portal-card-url { font-size: 0.72rem; color: var(--muted); }
 .document-card-wrap { margin: 0; }
 .document-card {
   display: flex;

@@ -6,11 +6,13 @@ import re
 from urllib.parse import urlparse
 
 from backend.app.pipeline.institution_catalog import (
+    GTU,
     SRKI,
     SU,
     VNSGU,
     get_crawl_seed_urls,
     get_extra_domains,
+    is_gtu_network,
     is_su_network,
 )
 
@@ -47,6 +49,9 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://vnsgu.ac.in/Syllabus/Syllabus/Syllabus%20(2024-2025)/Computer%20Science/UG/BCA%20Artificial%20Intelligence%20&%20Data%20Analytics%20(Honours)%20Sem%201%20&%202%20Syllabus%20from%202024-25%20(dt%2029-05-2024).pdf",
             "https://vnsgu.ac.in/uploads/syllabus/Syllabus%20(2025-2026)/Computer%20Science/UG/B.Sc.(Data%20Science%20and%20Analytics)Sem.-3%20&%204%20Syllabus%202025-26_(16-06-2025).pdf",
         ],
+        "syllabus_portal": [
+            "https://vnsgu.ac.in/Syllabus/",
+        ],
     },
     SRKI: {
         "default": ["https://www.srki.ac.in/"],
@@ -65,18 +70,29 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_IT_Sem1_Syllabus_IT_2024-25.pdf",
             "https://www.srki.ac.in/upload/2022-23/B.Sc%20IT.pdf",
         ],
+        "syllabus_portal": [
+            "https://www.srki.ac.in/pages/su-syllabus/",
+        ],
     },
     "Gujarat Technological University": {
-        "default": ["https://www.gtu.ac.in/"],
-        "admission": ["https://www.gtu.ac.in/admission.aspx"],
+        "default": ["https://www.gtu.ac.in/", "https://gtu.ac.in/"],
+        "admission": [
+            "https://www.gtu.ac.in/admission.aspx",
+            "https://gtu.ac.in/admission.aspx",
+        ],
         "syllabus": [
-            "https://www.gtu.ac.in/syllabus.aspx",
+            "https://gtu.ac.in/syllabus/syllabus.aspx",
+            "https://www.gtu.ac.in/syllabus/syllabus.aspx",
             "https://www.gtu.ac.in/StudyMaterial.aspx",
-            "https://www.gtu.ac.in/AllCourses.aspx",
+            "https://gtu.ac.in/StudyMaterial.aspx",
         ],
         "academics": [
-            "https://www.gtu.ac.in/syllabus.aspx",
-            "https://www.gtu.ac.in/StudyMaterial.aspx",
+            "https://gtu.ac.in/syllabus/syllabus.aspx",
+            "https://www.gtu.ac.in/syllabus/syllabus.aspx",
+            "https://www.gtu.ac.in/AllCourses.aspx",
+        ],
+        "syllabus_portal": [
+            "https://gtu.ac.in/syllabus/syllabus.aspx",
         ],
     },
     "Sardar Vallabhbhai National Institute of Technology Surat": {
@@ -100,6 +116,10 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         "admission": [
             "https://www.sarvajanikuniversity.ac.in/",
             "https://www.srki.ac.in/pages/admission-corner/",
+        ],
+        "syllabus_portal": [
+            "https://www.srki.ac.in/pages/su-syllabus/",
+            "https://sarvajanikuniversity.ac.in/aboutus/",
         ],
     },
     "Sarvajanik College of Engineering and Technology": {
@@ -125,18 +145,66 @@ _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 def _topics_for_query(query: str) -> list[str]:
     low = query.lower()
-    topics = ["default"]
+    matched: list[str] = []
     for topic, words in _TOPIC_KEYWORDS.items():
         if any(w in low for w in words):
-            topics.append(topic)
-    # Preserve order, unique
+            matched.append(topic)
+    if not matched:
+        return ["default"]
     seen: set[str] = set()
     out: list[str] = []
-    for t in topics:
+    for t in matched + ["default"]:
         if t not in seen:
             seen.add(t)
             out.append(t)
     return out
+
+
+def get_syllabus_portal_urls(institution: str, query: str = "") -> list[str]:
+    """Primary official syllabus selection / download pages (shown first in chat)."""
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+    portals = list(catalog.get("syllabus_portal") or [])
+    if not portals and "syllabus" in _topics_for_query(query):
+        portals = [u for u in catalog.get("syllabus", []) if "syllabus" in u.lower()]
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in portals:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
+    """High-priority official portal pages for syllabus/admission queries."""
+    low = query.lower()
+    is_syllabus = any(w in low for w in _TOPIC_KEYWORDS["syllabus"])
+    if not is_syllabus:
+        return []
+    resources: list[dict] = []
+    for url in get_syllabus_portal_urls(institution, query):
+        if institution == GTU:
+            title = "GTU official syllabus portal — select course & semester"
+        elif institution == SRKI:
+            title = "SRKI official syllabus page (Sarvajanik University)"
+        elif institution == SU:
+            title = "Sarvajanik University syllabus & constituent colleges"
+        elif institution == VNSGU:
+            title = "VNSGU official syllabus section"
+        else:
+            title = f"{institution} official syllabus page"
+        resources.append(
+            {
+                "type": "page",
+                "url": url,
+                "title": title,
+                "score": 200,
+                "source": "curated_portal",
+                "is_portal": True,
+                "curated": True,
+            }
+        )
+    return resources
 
 
 def get_official_urls(institution: str, query: str = "") -> list[str]:
@@ -150,8 +218,10 @@ def get_official_urls(institution: str, query: str = "") -> list[str]:
                 if url not in seen:
                     seen.add(url)
                     urls.append(url)
-    # SU parent queries also surface constituent college entry pages.
-    if is_su_network(institution):
+    # SU / GTU / VNSGU parent queries also surface deep official entry pages.
+    if is_su_network(institution) or is_gtu_network(institution):
+        urls = get_crawl_seed_urls(institution, urls, query)
+    elif institution == VNSGU:
         urls = get_crawl_seed_urls(institution, urls, query)
     return urls
 
@@ -159,10 +229,38 @@ def get_official_urls(institution: str, query: str = "") -> list[str]:
 def get_official_search_results(institution: str, query: str = "") -> list[dict]:
     """Shape curated links like web-search results for grounding."""
     results: list[dict] = []
+    low = query.lower()
+    is_syllabus = any(w in low for w in _TOPIC_KEYWORDS["syllabus"])
+
+    # Syllabus portal pages first (matches Google-style official syllabus hub).
+    for r in get_portal_page_resources(institution, query):
+        results.append(
+            {
+                "title": r["title"],
+                "url": r["url"],
+                "snippet": (
+                    f"Official syllabus portal for {institution}. "
+                    "Open this page to select course, branch, and semester — same as the university website."
+                ),
+                "extract": (
+                    f"Official syllabus selection portal for {institution}: {r['url']}. "
+                    "Use this page to find the correct syllabus PDF or scheme for the requested program/semester."
+                ),
+                "curated": True,
+                "is_portal": True,
+            }
+        )
+
+    seen = {r["url"] for r in results}
     for url in get_official_urls(institution, query):
+        if url in seen:
+            continue
+        seen.add(url)
         host = re.sub(r"^www\.", "", url.split("//")[-1].split("/")[0])
         label = f"{institution} — {host}"
-        if "admission" in query.lower() or "admission" in url.lower():
+        if is_syllabus and "syllabus" in url.lower():
+            label = f"{institution} — official syllabus page ({host})"
+        elif "admission" in low or "admission" in url.lower():
             label = f"{institution} — official admission portal ({host})"
         results.append(
             {

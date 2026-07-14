@@ -33,9 +33,11 @@ from backend.app.pipeline.institution_disambiguation import (
     resolve_institution_from_reply,
 )
 from backend.app.pipeline.institution_catalog import (
+    GTU,
     PARENT_UNIVERSITY,
     get_crawl_seed_urls,
     get_parent_university,
+    is_gtu_network,
     is_su_network,
     is_vnsgu_network,
     resolve_bare_su,
@@ -55,6 +57,8 @@ from backend.app.pipeline.official_links import (
     get_institution_domains,
     get_official_search_results,
     get_official_urls,
+    get_portal_page_resources,
+    get_syllabus_portal_urls,
     is_junk_pdf,
     url_belongs_to_institution,
 )
@@ -360,6 +364,10 @@ class EduOrchestrator:
                 queries.append(q)
         if institution and is_syllabus_query(text):
             queries.insert(0, f"{institution} syllabus pdf official")
+            if is_gtu_network(institution):
+                queries.insert(0, "site:gtu.ac.in syllabus syllabus.aspx BCA")
+            if is_su_network(institution):
+                queries.insert(0, f"site:srki.ac.in {text} syllabus pdf")
         limit = settings.edu_search_max_queries
         if institution and is_syllabus_query(text):
             limit = max(limit, 3)
@@ -416,12 +424,11 @@ class EduOrchestrator:
         if pdfs:
             return reply
         if institution:
-            syllabus_pages = [
+            syllabus_pages = get_syllabus_portal_urls(institution, user_query) or [
                 u for u in get_official_urls(institution, user_query) if "syllabus" in u.lower()
             ] or get_official_urls(institution, user_query)[:3]
             lines = [
-                "\n\n**📄 Syllabus PDF not found automatically.** "
-                "Please open the official syllabus section on the institution website:"
+                "\n\n**📄 Open the official syllabus portal** (select course & semester on the university site):"
             ]
             for u in syllabus_pages[:4]:
                 lines.append(f"- [{self._link_label(u)}]({u})")
@@ -518,6 +525,20 @@ class EduOrchestrator:
 
         # Curated official links first (works even when DuckDuckGo is blocked on cloud hosts).
         if institution:
+            for r in get_portal_page_resources(institution, user_query or ""):
+                url = r.get("url")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                resources.insert(0, r)
+                blocks.insert(
+                    0,
+                    f"[OFFICIAL-SYLLABUS-PORTAL] {r.get('title') or url}\n"
+                    f"Official syllabus selection page on the institution website. "
+                    f"Open this link to select course, branch, and semester (same as Google search result).\n"
+                    f"Direct link: {url}",
+                )
+                official.insert(0, url)
             for r in get_official_search_results(institution, user_query or institution):
                 _add_result(r)
             for r in get_curated_pdf_results(institution, user_query or ""):
@@ -639,7 +660,9 @@ class EduOrchestrator:
         if resources:
             query_for_pdf = user_query or institution or (queries[0] if queries else "")
             max_pdfs = 1 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
-            if is_syllabus_query(user_query or "") and (is_su_network(institution) or is_vnsgu_network(institution)):
+            if is_syllabus_query(user_query or "") and (
+                is_su_network(institution) or is_vnsgu_network(institution) or is_gtu_network(institution)
+            ):
                 max_pdfs = max(max_pdfs, 2)
             resources = enrich_pdf_resources(
                 resources, query_for_pdf, max_pdfs=max_pdfs, institution=institution

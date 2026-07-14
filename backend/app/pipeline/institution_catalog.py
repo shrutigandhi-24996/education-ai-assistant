@@ -9,6 +9,7 @@ from typing import Any
 SRKI = "Shree Ramkrishna Institute of Computer Education and Applied Sciences"
 SU = "Sarvajanik University"
 VNSGU = "Veer Narmad South Gujarat University"
+GTU = "Gujarat Technological University"
 
 # Alias (lowercase) -> canonical institution name.
 CONSTITUENT_ALIASES: dict[str, str] = {
@@ -23,7 +24,9 @@ CONSTITUENT_ALIASES: dict[str, str] = {
     "veer narmad south gujarat university": VNSGU,
     "veer narmad": VNSGU,
     "south gujarat university": VNSGU,
-    "gtu": "Gujarat Technological University",
+    "gtu": GTU,
+    "gujarat technological university": GTU,
+    "gujarat technological": GTU,
     "svnit": "Sardar Vallabhbhai National Institute of Technology Surat",
     # SU constituent short names
     "scet": "Sarvajanik College of Engineering and Technology",
@@ -128,6 +131,16 @@ SU_CONSTITUENT_SITES: list[dict[str, Any]] = [
         "domains": ("brcmbba.org", "sarvajanikuniversity.ac.in"),
         "urls": ("https://www.brcmbba.org/",),
     },
+    {
+        "canonical": "Sarvajanik College of Commerce and Computer Applications",
+        "domains": ("sarvajanikuniversity.ac.in",),
+        "urls": ("https://sarvajanikuniversity.ac.in/aboutus/",),
+    },
+    {
+        "canonical": "Smt. Shardarani Rameshchander Luthra Institute of Management",
+        "domains": ("sarvajanikuniversity.ac.in",),
+        "urls": ("https://sarvajanikuniversity.ac.in/aboutus/",),
+    },
 ]
 
 VNSGU_OFFICIAL_SEEDS: tuple[str, ...] = (
@@ -137,6 +150,14 @@ VNSGU_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.vnsgu.ac.in/external_examination",
     "https://www.vnsguj.ac.in/affiliated_colleges.php",
     "https://vnsguadm.samarth.edu.in/",
+)
+
+GTU_OFFICIAL_SEEDS: tuple[str, ...] = (
+    "https://gtu.ac.in/syllabus/syllabus.aspx",
+    "https://www.gtu.ac.in/syllabus/syllabus.aspx",
+    "https://www.gtu.ac.in/",
+    "https://gtu.ac.in/StudyMaterial.aspx",
+    "https://www.gtu.ac.in/StudyMaterial.aspx",
 )
 
 _SORTED_ALIAS_ITEMS = sorted(
@@ -192,6 +213,14 @@ def is_vnsgu_network(institution: str) -> bool:
     return institution == VNSGU or institution in VNSGU_AFFILIATED_ALIASES.values()
 
 
+def is_gtu_network(institution: str) -> bool:
+    return institution == GTU
+
+
+def is_srki_network(institution: str) -> bool:
+    return institution == SRKI or is_su_network(institution)
+
+
 def get_extra_domains(institution: str) -> set[str]:
     """Additional allowed domains beyond official_links catalog."""
     domains: set[str] = set()
@@ -212,6 +241,8 @@ def get_extra_domains(institution: str) -> set[str]:
                 "vnsgu.net",
             )
         )
+    if is_gtu_network(institution):
+        domains.add("gtu.ac.in")
     return domains
 
 
@@ -230,6 +261,9 @@ def get_crawl_seed_urls(institution: str, base_urls: list[str], query: str = "")
     if is_vnsgu_network(institution):
         seeds.extend(VNSGU_OFFICIAL_SEEDS)
 
+    if is_gtu_network(institution):
+        seeds.extend(GTU_OFFICIAL_SEEDS)
+
     # Dedupe preserving order
     seen: set[str] = set()
     out: list[str] = []
@@ -242,10 +276,11 @@ def get_crawl_seed_urls(institution: str, base_urls: list[str], query: str = "")
 
 def get_crawl_limits(institution: str, is_syllabus: bool) -> tuple[int, int]:
     """Higher crawl depth for priority regional institutions."""
+    priority = is_su_network(institution) or is_vnsgu_network(institution) or is_gtu_network(institution)
     if is_syllabus:
-        if is_su_network(institution) or is_vnsgu_network(institution):
+        if priority:
             return (18, 5)
         return (14, 5)
-    if is_su_network(institution) or is_vnsgu_network(institution):
+    if priority:
         return (12, 4)
     return (10, 3)

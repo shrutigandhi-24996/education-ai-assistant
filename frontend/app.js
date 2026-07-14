@@ -867,9 +867,34 @@ function createImagePreview(img) {
   return wrap;
 }
 
+function createPortalCard(page) {
+  const wrap = document.createElement("div");
+  wrap.className = "portal-card-wrap";
+  const link = document.createElement("a");
+  link.className = "portal-card";
+  link.href = page.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.innerHTML =
+    `<span class="portal-card-icon">🌐</span>` +
+    `<span class="portal-card-body">` +
+    `<span class="portal-card-title">${escapeHtml(page.title || "Official syllabus portal")}</span>` +
+    `<span class="portal-card-action">Open official page to select course &amp; semester ↗</span>` +
+    `<span class="portal-card-url">${escapeHtml(hostOf(page.url))}</span>` +
+    `</span>`;
+  wrap.appendChild(link);
+  return wrap;
+}
+
 function appendAnswerMedia(bubble, resources) {
   const mediaWrap = document.createElement("div");
   mediaWrap.className = "answer-media-first";
+
+  const portals = (resources || [])
+    .filter((r) => r.is_portal || r.source === "curated_portal")
+    .slice()
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
+  portals.slice(0, 2).forEach((p) => mediaWrap.appendChild(createPortalCard(p)));
 
   const pdfs = getSortedResources(resources, "pdf");
   const primaryPdf = pdfs.find((r) => r.has_content) || pdfs[0];
@@ -895,6 +920,7 @@ function appendAnswerMedia(bubble, resources) {
 function appendSupplementarySources(bubble, sources, resources, primaryPdfUrl, includeAllResources) {
   const shown = new Set((resources || []).map((r) => r.url));
   if (primaryPdfUrl) shown.add(primaryPdfUrl);
+  (resources || []).filter((r) => r.is_portal).forEach((r) => shown.add(r.url));
 
   if (includeAllResources) {
     const box = document.createElement("div");
