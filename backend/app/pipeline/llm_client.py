@@ -73,6 +73,8 @@ ANSWER FORMAT:
 - When PDFs, documents, or images are in WEB CONTEXT: keep the reply SHORT (2–5 sentences or a few tight bullets)
   with key facts from those sources. Skip long paragraphs and link lists.
 - When no PDF/document/image applies: use clear, justified paragraphs with headings/bullets as needed.
+- Contact/address/phone queries: answer ONLY with address/contact facts and the official contact link.
+  Do NOT mention syllabus PDFs or unrelated campus/testimonial images for these questions.
 - Separate key facts from next steps briefly; avoid redundant source listings.
 
 SYLLABUS ANSWERS (critical):

@@ -27,6 +27,7 @@ _TOPIC_WORDS = {
     "admission": ("admission", "admissions", "apply", "eligibility", "prospectus"),
     "fee": ("fee", "fees", "tuition", "charges"),
     "exam": ("exam", "result", "timetable", "notification"),
+    "contact": ("contact", "address", "phone", "email", "location", "map"),
 }
 _PROGRAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bbscit\b", re.I), "it"),
@@ -115,19 +116,24 @@ def _score_nav_link(url: str, label: str, intent: dict[str, Any], depth: int, to
     blob = f"{url} {label}".lower()
     blob_ns = blob.replace(" ", "").replace("_", "").replace("-", "")
     score = max(0, 14 - depth * 2)
+    contact_focus = "contact" in topics and "syllabus" not in topics
     if _asset_type(url) == "pdf":
-        score += 14
+        if contact_focus:
+            score -= 20
+        else:
+            score += 14
     for topic in topics:
         words = _TOPIC_WORDS.get(topic, ())
         for w in words:
             if w in blob:
                 score += 5
-    for w in _SYLLABUS_WORDS:
-        if w.replace(" ", "") in blob_ns or w in blob:
-            score += 4
-    for w in _NAV_WORDS:
-        if w.replace(" ", "") in blob_ns or w in blob:
-            score += 3
+    if not contact_focus:
+        for w in _SYLLABUS_WORDS:
+            if w.replace(" ", "") in blob_ns or w in blob:
+                score += 4
+        for w in _NAV_WORDS:
+            if w.replace(" ", "") in blob_ns or w in blob:
+                score += 3
     for prog in intent.get("programs") or []:
         if prog in blob_ns or prog in blob:
             score += 7
@@ -144,12 +150,14 @@ def _score_nav_link(url: str, label: str, intent: dict[str, Any], depth: int, to
     year = intent.get("year")
     if year and year.replace("-", "")[:6] in blob_ns.replace("-", ""):
         score += 5
-    if "upload" in blob and _asset_type(url) == "pdf":
+    if "upload" in blob and _asset_type(url) == "pdf" and not contact_focus:
         score += 6
-    if "nep" in blob:
+    if "nep" in blob and not contact_focus:
         score += 4
     if "/pages/" in url or "/academic" in url:
         score += 2
+    if contact_focus and any(w in blob for w in ("contact", "address", "location", "map")):
+        score += 20
     # Penalize wrong semester in filename when user asked a specific sem.
     sem = intent.get("semester")
     if sem and _asset_type(url) == "pdf":

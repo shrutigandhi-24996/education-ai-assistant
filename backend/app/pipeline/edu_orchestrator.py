@@ -57,6 +57,7 @@ from backend.app.pipeline.local_dataset import try_local_curriculum_block
 from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import (
     filter_resources_for_institution,
+    filter_resources_for_query,
     filter_urls_for_institution,
     get_curated_pdf_results,
     get_institution_domains,
@@ -64,7 +65,9 @@ from backend.app.pipeline.official_links import (
     get_official_urls,
     get_portal_page_resources,
     get_syllabus_portal_urls,
+    is_contact_query,
     is_junk_pdf,
+    query_wants_document_media,
     url_belongs_to_institution,
 )
 from backend.app.pipeline.page_assets import _asset_type, harvest_official_assets
@@ -583,21 +586,41 @@ class EduOrchestrator:
         seed_pages = [u for u in official[:2]] or [u for u in others[:1]]
         if institution and not seed_pages:
             seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
+        contact_q = is_contact_query(user_query or "")
+        wants_media = query_wants_document_media(user_query or "")
         if institution and (is_srki_only(institution) or is_su_network(institution)):
-            seed_pages = list(
-                dict.fromkeys(
-                    get_official_urls(institution, user_query)
-                    + official
-                    + get_crawl_seed_urls(institution, [], user_query)
-                )
-            )[: get_asset_harvest_pages(institution)]
+            if contact_q and not wants_media:
+                # Address/contact: only official contact (and default) pages — not syllabus hubs.
+                seed_pages = list(
+                    dict.fromkeys(get_official_urls(institution, user_query) + official)
+                )[:3]
+            else:
+                seed_pages = list(
+                    dict.fromkeys(
+                        get_official_urls(institution, user_query)
+                        + official
+                        + get_crawl_seed_urls(institution, [], user_query)
+                    )
+                )[: get_asset_harvest_pages(institution)]
         if seed_pages and settings.external_search_enabled:
-            max_pg = max(settings.edu_asset_harvest_pages, get_asset_harvest_pages(institution))
+            max_pg = 2 if (contact_q and not wants_media) else max(
+                settings.edu_asset_harvest_pages, get_asset_harvest_pages(institution)
+            )
             harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),
                 max_pages=max_pg,
             )
+            if contact_q and not wants_media:
+                harvested = [
+                    h
+                    for h in harvested
+                    if h.get("type") == "page"
+                    or any(
+                        w in f"{h.get('url', '')} {h.get('title', '')}".lower()
+                        for w in ("contact", "address", "map", "location")
+                    )
+                ]
             resources.extend(harvested)
             tag_map = {"pdf": "OFFICIAL-PDF", "document": "OFFICIAL-DOC", "page": "OFFICIAL-PAGE", "image": "OFFICIAL-IMAGE"}
             for r in resources:
@@ -618,7 +641,8 @@ class EduOrchestrator:
                     others.append(url)
 
             # Crawl official menus/sub-menus for PDFs, pages, and informative images.
-            if institution:
+            # Skip deep media crawl for contact/address-only questions.
+            if institution and not (contact_q and not wants_media):
                 nav_seeds = get_crawl_seed_urls(
                     institution,
                     list(dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:6])),
@@ -629,6 +653,8 @@ class EduOrchestrator:
                 for r in crawl.get("pdfs", []) + crawl.get("pages", []) + crawl.get("images", []):
                     url = r.get("url")
                     if not url or url in seen or url in existing:
+                        continue
+                    if not wants_media and r.get("type") in ("pdf", "document", "image"):
                         continue
                     seen.add(url)
                     existing.add(url)
@@ -674,9 +700,24 @@ class EduOrchestrator:
                             f"{extract}\n"
                             f"Source: {page_url}"
                         )
+            elif institution and contact_q:
+                # Contact-only: extract text from contact / official pages for the address.
+                extract_urls = []
+                for u in seed_pages + official:
+                    if u and u not in extract_urls and _asset_type(u) != "pdf":
+                        extract_urls.append(u)
+                for page_url in extract_urls[:3]:
+                    extract = fetch_page_extract(page_url, user_query or institution, max_len=1400)
+                    if extract:
+                        blocks.append(
+                            f"[OFFICIAL-PAGE-CONTENT] {page_url}\n"
+                            f"Extracted from official website page (use for verified facts):\n"
+                            f"{extract}\n"
+                            f"Source: {page_url}"
+                        )
 
         # Read PDF text so answers can be grounded in official documents.
-        if resources:
+        if resources and wants_media:
             query_for_pdf = user_query or institution or (queries[0] if queries else "")
             max_pdfs = 1 if is_syllabus_query(user_query or "") else settings.edu_pdf_max_read
             if is_syllabus_query(user_query or "") and (
@@ -693,6 +734,13 @@ class EduOrchestrator:
             resources = filter_resources_for_institution(resources, institution)
             official = filter_urls_for_institution(official, institution)
             others = [u for u in others if url_belongs_to_institution(u, institution) or self._is_official(u)]
+
+        resources = filter_resources_for_query(resources, user_query or "")
+        # Prefer official contact URLs first for address queries.
+        if contact_q:
+            contact_urls = [u for u in official if "contact" in u.lower()]
+            other_off = [u for u in official if u not in contact_urls]
+            official = contact_urls + other_off
 
         sources = list(dict.fromkeys(official + others))
         return "\n\n---\n\n".join(blocks), sources, resources

@@ -875,11 +875,16 @@ function createPortalCard(page) {
   link.href = page.url;
   link.target = "_blank";
   link.rel = "noopener";
+  const title = page.title || "Official page";
+  const isContact = /contact|address/i.test(title) || /contact/i.test(page.url || "");
+  const action = isContact
+    ? "Open official contact page for address &amp; phone ↗"
+    : "Open official page to select course &amp; semester ↗";
   link.innerHTML =
     `<span class="portal-card-icon">🌐</span>` +
     `<span class="portal-card-body">` +
-    `<span class="portal-card-title">${escapeHtml(page.title || "Official syllabus portal")}</span>` +
-    `<span class="portal-card-action">Open official page to select course &amp; semester ↗</span>` +
+    `<span class="portal-card-title">${escapeHtml(title)}</span>` +
+    `<span class="portal-card-action">${action}</span>` +
     `<span class="portal-card-url">${escapeHtml(hostOf(page.url))}</span>` +
     `</span>`;
   wrap.appendChild(link);

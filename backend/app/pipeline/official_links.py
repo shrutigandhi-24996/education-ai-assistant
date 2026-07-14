@@ -253,12 +253,17 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
 
 _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "admission": ("admission", "admissions", "apply", "application", "eligibility", "2026", "2025", "entrance"),
-    "contact": ("contact", "address", "phone", "email", "location"),
+    "contact": ("contact", "address", "phone", "email", "location", "where is", "map", "directions"),
     "fee": ("fee", "fees", "tuition", "payment", "charges", "cost"),
     "form": ("form", "forms", "application form", "download form", "prospectus", "brochure"),
-    "syllabus": ("syllabus", "curriculum", "sem", "semester", "scheme", "regulation", "nep", "course"),
-    "academics": ("academic", "academics", "department", "program", "programme", "faculty", "constituent", "college"),
+    "syllabus": ("syllabus", "curriculum", "semester", "scheme", "regulation", "nep"),
+    "academics": ("academic", "academics", "department", "program", "programme", "faculty", "constituent colleges"),
 }
+
+# Topics where PDFs / forms / images are useful to show inline.
+_MEDIA_TOPICS = frozenset({"syllabus", "admission", "fee", "form"})
+_CONTACT_HINTS = ("contact", "address", "phone", "email", "location", "map", "direction")
+_SYLLABUS_MEDIA_HINTS = ("syllabus", "curriculum", "scheme", "regulation", "nep", "sem")
 
 
 def _topics_for_query(query: str) -> list[str]:
@@ -307,14 +312,83 @@ def get_admission_portal_urls(institution: str, query: str = "") -> list[str]:
     return out
 
 
+def is_contact_query(query: str) -> bool:
+    low = (query or "").lower()
+    return any(w in low for w in _TOPIC_KEYWORDS["contact"])
+
+
+def is_syllabus_topic_query(query: str) -> bool:
+    if "syllabus" in _topics_for_query(query):
+        return True
+    low = (query or "").lower()
+    if any(w in low for w in ("syllabus", "curriculum", "scheme", "regulation")):
+        return True
+    if re.search(r"\bsem(?:ester)?[\s\-]*\d+\b", low) and any(
+        w in low for w in ("bsc", "b.sc", "m.sc", "bca", "mba", "course", "it", "cs", "subject", "nep")
+    ):
+        return True
+    return False
+
+
+def query_wants_document_media(query: str) -> bool:
+    """True when the user is asking for syllabus/docs/forms that warrant PDF/image cards."""
+    if is_syllabus_topic_query(query):
+        return True
+    topics = {t for t in _topics_for_query(query) if t != "default"}
+    if topics & _MEDIA_TOPICS:
+        return True
+    low = (query or "").lower()
+    return any(
+        w in low
+        for w in (
+            "pdf",
+            "brochure",
+            "prospectus",
+            "download",
+            "form",
+            "document",
+            "image",
+            "photo",
+        )
+    )
+
+
+def get_contact_portal_urls(institution: str, query: str = "") -> list[str]:
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+    urls = list(catalog.get("contact") or [])
+    if not urls:
+        urls = [u for u in catalog.get("default", []) if "contact" in u.lower()]
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
 def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
-    """High-priority official portal pages for syllabus/admission queries."""
-    low = query.lower()
-    is_syllabus = any(w in low for w in _TOPIC_KEYWORDS["syllabus"])
-    is_admission = any(w in low for w in _TOPIC_KEYWORDS["admission"])
-    if not is_syllabus and not is_admission:
+    """High-priority official portal pages for syllabus/admission/contact queries."""
+    topics = set(_topics_for_query(query))
+    is_syllabus = "syllabus" in topics
+    is_admission = "admission" in topics
+    is_contact = "contact" in topics
+    if not is_syllabus and not is_admission and not is_contact:
         return []
     resources: list[dict] = []
+    if is_contact and not is_syllabus:
+        for url in get_contact_portal_urls(institution, query):
+            resources.append(
+                {
+                    "type": "page",
+                    "url": url,
+                    "title": f"{institution} — official contact / address page",
+                    "score": 210,
+                    "source": "curated_portal",
+                    "is_portal": True,
+                    "curated": True,
+                }
+            )
     if is_syllabus:
         for url in get_syllabus_portal_urls(institution, query):
             if institution == GTU:
@@ -338,7 +412,7 @@ def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
                     "curated": True,
                 }
             )
-    if is_admission:
+    if is_admission and not is_contact:
         for url in get_admission_portal_urls(institution, query):
             resources.append(
                 {
@@ -486,7 +560,9 @@ def is_junk_pdf(title: str, url: str) -> bool:
 
 
 def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
-    """Return curated official PDF links for an institution (syllabus etc.)."""
+    """Return curated official PDF links only when the query asks for syllabus/docs."""
+    if not is_syllabus_topic_query(query):
+        return []
     catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
     pdfs = catalog.get("syllabus_pdfs") or []
     low = query.lower()
@@ -546,4 +622,63 @@ def filter_resources_for_institution(resources: list[dict], institution: str) ->
             continue
         if url_belongs_to_institution(url, institution):
             out.append(r)
+    return out
+
+
+def _resource_blob(resource: dict) -> str:
+    return f"{resource.get('url', '')} {resource.get('title', '')} {resource.get('page_title', '')}".lower()
+
+
+def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
+    """Keep only resources that help answer this query (no irrelevant PDFs/images)."""
+    if not resources:
+        return resources
+    topics = [t for t in _topics_for_query(query) if t != "default"]
+    contact_only = is_contact_query(query) and not (set(topics) & {"syllabus", "fee", "admission", "form"})
+    wants_media = query_wants_document_media(query)
+
+    out: list[dict] = []
+    for r in resources:
+        rtype = r.get("type") or "page"
+        blob = _resource_blob(r)
+        if r.get("is_portal") or r.get("source") == "curated_portal":
+            out.append(r)
+            continue
+
+        if contact_only:
+            if rtype in ("pdf", "document", "image"):
+                if any(h in blob for h in _CONTACT_HINTS):
+                    out.append(r)
+                continue
+            if any(h in blob for h in _CONTACT_HINTS):
+                out.append(r)
+            continue
+
+        if not wants_media and rtype in ("pdf", "document", "image"):
+            continue
+
+        if rtype == "pdf" and wants_media:
+            if is_syllabus_topic_query(query):
+                if any(h in blob for h in _SYLLABUS_MEDIA_HINTS) or r.get("curated") or r.get("has_content"):
+                    out.append(r)
+                continue
+            out.append(r)
+            continue
+
+        if rtype == "image":
+            if any(h in blob for h in ("map", "campus", "brochure", "prospectus", "fee", "form", "admission")):
+                out.append(r)
+            continue
+
+        out.append(r)
+
+    if contact_only:
+        contact_pages = [r for r in out if any(h in _resource_blob(r) for h in _CONTACT_HINTS) or r.get("is_portal")]
+        if contact_pages:
+            # Deduplicate by URL, portals first.
+            ordered = [r for r in out if r.get("is_portal")] + [
+                r for r in contact_pages if not r.get("is_portal")
+            ]
+            return list({r.get("url"): r for r in ordered}.values())
+
     return out
