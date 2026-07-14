@@ -11,6 +11,16 @@ SU = "Sarvajanik University"
 VNSGU = "Veer Narmad South Gujarat University"
 GTU = "Gujarat Technological University"
 
+SCET = "Sarvajanik College of Engineering and Technology"
+SCOL = "Sarvajanik College of Law"
+BRCM = "B.R.C.M. College of Business Administration"
+SCCCA = "KP Human Sarvajanik College of Commerce and Computer Applications"
+SRLIM = "Smt. Shardarani Rameshchander Luthra Institute of Management"
+SCOPA = "Shri Pankaj Kapadia Sarvajanik College of Performing Arts"
+SCTCC = "Sarvajanik Centre for Training and Certificate Courses"
+IDPT = "MITRAJ Sarvajanik Institute of Design, Planning and Technology"
+SCLA = "Sarvajanik College of Liberal Arts"
+
 # Alias (lowercase) -> canonical institution name.
 CONSTITUENT_ALIASES: dict[str, str] = {
     "srki": SRKI,
@@ -28,32 +38,35 @@ CONSTITUENT_ALIASES: dict[str, str] = {
     "gujarat technological university": GTU,
     "gujarat technological": GTU,
     "svnit": "Sardar Vallabhbhai National Institute of Technology Surat",
-    # SU constituent short names
-    "scet": "Sarvajanik College of Engineering and Technology",
-    "sarvajanik college of engineering": "Sarvajanik College of Engineering and Technology",
-    "scol": "Sarvajanik College of Law",
-    "sarvajanik college of law": "Sarvajanik College of Law",
-    "brcm": "B.R.C.M. College of Business Administration",
-    "brcm college": "B.R.C.M. College of Business Administration",
-    "sccca": "Sarvajanik College of Commerce and Computer Applications",
-    "srlim": "Smt. Shardarani Rameshchander Luthra Institute of Management",
-    "scopa": "Shri Pankaj Kapadia Sarvajanik College of Performing Arts",
-    "sctcc": "Sarvajanik Centre for Training and Certificate Courses",
-    "idpt": "Institute of Design, Planning and Technology",
-    "idpt scet": "Institute of Design, Planning and Technology",
+    "scet": SCET,
+    "sarvajanik college of engineering": SCET,
+    "scol": SCOL,
+    "sarvajanik college of law": SCOL,
+    "brcm": BRCM,
+    "brcm college": BRCM,
+    "sccca": SCCCA,
+    "kp human": SCCCA,
+    "srlim": SRLIM,
+    "scopa": SCOPA,
+    "sctcc": SCTCC,
+    "idpt": IDPT,
+    "idpt scet": IDPT,
+    "mitraj": IDPT,
+    "scla": SCLA,
+    "liberal arts": SCLA,
 }
 
-# Parent university for constituent colleges.
 PARENT_UNIVERSITY: dict[str, str] = {
     SRKI: SU,
-    "Sarvajanik College of Engineering and Technology": SU,
-    "Sarvajanik College of Law": SU,
-    "B.R.C.M. College of Business Administration": SU,
-    "Sarvajanik College of Commerce and Computer Applications": SU,
-    "Smt. Shardarani Rameshchander Luthra Institute of Management": SU,
-    "Shri Pankaj Kapadia Sarvajanik College of Performing Arts": SU,
-    "Sarvajanik Centre for Training and Certificate Courses": SU,
-    "Institute of Design, Planning and Technology": SU,
+    SCET: SU,
+    SCOL: SU,
+    BRCM: SU,
+    SCCCA: SU,
+    SRLIM: SU,
+    SCOPA: SU,
+    SCTCC: SU,
+    IDPT: SU,
+    SCLA: SU,
 }
 
 VNSGU_AFFILIATED_ALIASES: dict[str, str] = {
@@ -67,17 +80,17 @@ VNSGU_AFFILIATED_ALIASES: dict[str, str] = {
 SU_CONSTITUENT_ALIASES: dict[str, str] = {
     "srki": SRKI,
     "shree ramkrishna institute": SRKI,
-    "scet": "Sarvajanik College of Engineering and Technology",
-    "scol": "Sarvajanik College of Law",
-    "brcm": "B.R.C.M. College of Business Administration",
-    "sccca": "Sarvajanik College of Commerce and Computer Applications",
-    "srlim": "Smt. Shardarani Rameshchander Luthra Institute of Management",
-    "scopa": "Shri Pankaj Kapadia Sarvajanik College of Performing Arts",
-    "sctcc": "Sarvajanik Centre for Training and Certificate Courses",
-    "idpt": "Institute of Design, Planning and Technology",
+    "scet": SCET,
+    "scol": SCOL,
+    "brcm": BRCM,
+    "sccca": SCCCA,
+    "srlim": SRLIM,
+    "scopa": SCOPA,
+    "sctcc": SCTCC,
+    "idpt": IDPT,
+    "scla": SCLA,
 }
 
-# Gujarat / Surat context — auto-map bare "SU" to Sarvajanik University.
 _SU_REGION_HINTS = (
     "surat",
     "gujarat",
@@ -91,8 +104,32 @@ _SU_REGION_HINTS = (
     "scopa",
     "sctcc",
     "idpt",
+    "scla",
+    "mitraj",
+    "kp human",
     "constituent",
     "nep",
+)
+
+# Official SRKI pages for menu/sub-menu crawl (syllabus hub for whole SU).
+SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
+    "https://www.srki.ac.in/",
+    "https://www.srki.ac.in/pages/su-syllabus/",
+    "https://www.srki.ac.in/pages/admission-corner/",
+    "https://www.srki.ac.in/pages/courses-offered/",
+    "https://www.srki.ac.in/pages/srki-constituent-college-of-sarvajanik-university-/",
+    "https://www.srki.ac.in/contact/",
+    "https://www.srki.ac.in/pages/fees-structure/",
+    "https://www.srki.ac.in/pages/fees-payment/",
+    "https://www.srki.ac.in/pages/fees-payment-notice/",
+    "https://www.srki.ac.in/pages/history/",
+)
+
+SU_PARENT_SEEDS: tuple[str, ...] = (
+    "https://www.sarvajanikuniversity.ac.in/",
+    "https://sarvajanikuniversity.ac.in/aboutus/",
+    "https://student.sarvajanikuniversity.ac.in:8080/admissionindex.html",
+    "https://www.sarvajanikuniversity.ac.in/pages/advertisement-sarvajanik-college-of-liberal-arts/",
 )
 
 # Constituent college metadata: domains and entry URLs for menu crawl.
@@ -100,46 +137,59 @@ SU_CONSTITUENT_SITES: list[dict[str, Any]] = [
     {
         "canonical": SRKI,
         "domains": ("srki.ac.in",),
-        "urls": (
-            "https://www.srki.ac.in/",
-            "https://www.srki.ac.in/pages/su-syllabus/",
-            "https://www.srki.ac.in/pages/admission-corner/",
-            "https://www.srki.ac.in/pages/courses-offered/",
-        ),
+        "urls": SRKI_OFFICIAL_SEEDS,
     },
     {
         "canonical": SU,
-        "domains": ("sarvajanikuniversity.ac.in", "sarvajanikuniversity.edu.in"),
-        "urls": (
-            "https://www.sarvajanikuniversity.ac.in/",
-            "https://sarvajanikuniversity.ac.in/aboutus/",
-            "https://sarvajanikuniversity.ac.in/admission/",
-        ),
+        "domains": ("sarvajanikuniversity.ac.in", "sarvajanikuniversity.edu.in", "student.sarvajanikuniversity.ac.in"),
+        "urls": SU_PARENT_SEEDS,
     },
     {
-        "canonical": "Sarvajanik College of Engineering and Technology",
-        "domains": ("scet.ac.in", "sarvajanikuniversity.ac.in"),
-        "urls": ("https://www.scet.ac.in/",),
+        "canonical": SCET,
+        "domains": ("scet.ac.in",),
+        "urls": ("https://www.scet.ac.in/", "https://www.scet.ac.in/academics/"),
     },
     {
-        "canonical": "Sarvajanik College of Law",
-        "domains": ("sarvajanikuniversity.ac.in", "sarvajaniklaw.org"),
-        "urls": ("https://sarvajanikuniversity.ac.in/",),
+        "canonical": SCOL,
+        "domains": ("sarvajaniklaw.org",),
+        "urls": ("https://sarvajaniklaw.org/",),
     },
     {
-        "canonical": "B.R.C.M. College of Business Administration",
-        "domains": ("brcmbba.org", "sarvajanikuniversity.ac.in"),
+        "canonical": BRCM,
+        "domains": ("brcmbba.org",),
         "urls": ("https://www.brcmbba.org/",),
     },
     {
-        "canonical": "Sarvajanik College of Commerce and Computer Applications",
+        "canonical": SCCCA,
+        "domains": ("sccca.ac.in",),
+        "urls": ("https://www.sccca.ac.in/",),
+    },
+    {
+        "canonical": SRLIM,
+        "domains": ("srlimba.ac.in",),
+        "urls": ("https://srlimba.ac.in/",),
+    },
+    {
+        "canonical": SCOPA,
+        "domains": ("scopa-surat.ac.in",),
+        "urls": ("https://www.scopa-surat.ac.in/",),
+    },
+    {
+        "canonical": IDPT,
+        "domains": ("idpt-scet.ac.in",),
+        "urls": ("https://www.idpt-scet.ac.in/",),
+    },
+    {
+        "canonical": SCTCC,
         "domains": ("sarvajanikuniversity.ac.in",),
         "urls": ("https://sarvajanikuniversity.ac.in/aboutus/",),
     },
     {
-        "canonical": "Smt. Shardarani Rameshchander Luthra Institute of Management",
+        "canonical": SCLA,
         "domains": ("sarvajanikuniversity.ac.in",),
-        "urls": ("https://sarvajanikuniversity.ac.in/aboutus/",),
+        "urls": (
+            "https://www.sarvajanikuniversity.ac.in/pages/advertisement-sarvajanik-college-of-liberal-arts/",
+        ),
     },
 ]
 
@@ -167,13 +217,26 @@ _SORTED_ALIAS_ITEMS = sorted(
 )
 
 
+def all_su_constituent_domains() -> set[str]:
+    domains: set[str] = set()
+    for site in SU_CONSTITUENT_SITES:
+        domains.update(site["domains"])
+    return domains
+
+
+def get_constituent_primary_domain(institution: str) -> str | None:
+    for site in SU_CONSTITUENT_SITES:
+        if site["canonical"] == institution and site["domains"]:
+            return site["domains"][0]
+    return None
+
+
 def is_su_gujarat_context(query: str) -> bool:
     low = query.lower()
     return any(h in low for h in _SU_REGION_HINTS)
 
 
 def resolve_bare_su(query: str) -> str | None:
-    """Map standalone SU to Sarvajanik University when Gujarat/Surat context is present."""
     if not re.search(r"\bsu\b", query, re.I):
         return None
     if is_su_gujarat_context(query):
@@ -182,7 +245,6 @@ def resolve_bare_su(query: str) -> str | None:
 
 
 def resolve_constituent(query: str) -> str | None:
-    """Match constituent college / university short names in a query (longest alias first)."""
     low = query.lower()
     for alias, canonical in _SORTED_ALIAS_ITEMS:
         if len(alias) < 2:
@@ -207,6 +269,10 @@ def is_su_network(institution: str) -> bool:
     return get_parent_university(institution) == SU
 
 
+def is_srki_only(institution: str) -> bool:
+    return institution == SRKI
+
+
 def is_vnsgu_network(institution: str) -> bool:
     if not institution:
         return False
@@ -222,14 +288,12 @@ def is_srki_network(institution: str) -> bool:
 
 
 def get_extra_domains(institution: str) -> set[str]:
-    """Additional allowed domains beyond official_links catalog."""
     domains: set[str] = set()
     if is_su_network(institution):
         for site in SU_CONSTITUENT_SITES:
-            if institution == SU or site["canonical"] == institution:
+            if institution == SU:
                 domains.update(site["domains"])
-        if institution == SU:
-            for site in SU_CONSTITUENT_SITES:
+            elif site["canonical"] == institution:
                 domains.update(site["domains"])
     if is_vnsgu_network(institution):
         domains.update(
@@ -247,24 +311,25 @@ def get_extra_domains(institution: str) -> set[str]:
 
 
 def get_crawl_seed_urls(institution: str, base_urls: list[str], query: str = "") -> list[str]:
-    """Merge curated seeds with constituent-college entry pages for deep menu crawl."""
     seeds: list[str] = list(base_urls)
     low = (query or "").lower()
 
-    if is_su_network(institution):
+    if institution == SRKI:
+        seeds.extend(SRKI_OFFICIAL_SEEDS)
+    elif is_su_network(institution):
         for site in SU_CONSTITUENT_SITES:
             if institution == SU or site["canonical"] == institution:
                 seeds.extend(site["urls"])
-        if institution == SU and any(w in low for w in ("constituent", "college", "list")):
-            seeds.append("https://sarvajanikuniversity.ac.in/aboutus/")
+        if institution == SU:
+            seeds.extend(SU_PARENT_SEEDS)
+            if any(w in low for w in ("constituent", "college", "list", "all")):
+                seeds.append("https://sarvajanikuniversity.ac.in/aboutus/")
 
     if is_vnsgu_network(institution):
         seeds.extend(VNSGU_OFFICIAL_SEEDS)
-
     if is_gtu_network(institution):
         seeds.extend(GTU_OFFICIAL_SEEDS)
 
-    # Dedupe preserving order
     seen: set[str] = set()
     out: list[str] = []
     for u in seeds:
@@ -275,12 +340,26 @@ def get_crawl_seed_urls(institution: str, base_urls: list[str], query: str = "")
 
 
 def get_crawl_limits(institution: str, is_syllabus: bool) -> tuple[int, int]:
-    """Higher crawl depth for priority regional institutions."""
-    priority = is_su_network(institution) or is_vnsgu_network(institution) or is_gtu_network(institution)
+    priority = (
+        is_srki_only(institution)
+        or institution == SU
+        or is_su_network(institution)
+        or is_vnsgu_network(institution)
+        or is_gtu_network(institution)
+    )
     if is_syllabus:
         if priority:
-            return (18, 5)
+            return (22, 5)
         return (14, 5)
     if priority:
-        return (12, 4)
+        return (14, 4)
     return (10, 3)
+
+
+def get_asset_harvest_pages(institution: str) -> int:
+    """More official pages scanned for SRKI / SU network queries."""
+    if is_srki_only(institution) or institution == SU:
+        return 8
+    if is_su_network(institution):
+        return 6
+    return 3

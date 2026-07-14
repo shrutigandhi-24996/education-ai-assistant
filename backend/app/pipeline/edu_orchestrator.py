@@ -35,9 +35,14 @@ from backend.app.pipeline.institution_disambiguation import (
 from backend.app.pipeline.institution_catalog import (
     GTU,
     PARENT_UNIVERSITY,
+    SRKI,
+    SU,
+    get_asset_harvest_pages,
+    get_constituent_primary_domain,
     get_crawl_seed_urls,
     get_parent_university,
     is_gtu_network,
+    is_srki_only,
     is_su_network,
     is_vnsgu_network,
     resolve_bare_su,
@@ -366,11 +371,17 @@ class EduOrchestrator:
             queries.insert(0, f"{institution} syllabus pdf official")
             if is_gtu_network(institution):
                 queries.insert(0, "site:gtu.ac.in syllabus syllabus.aspx BCA")
-            if is_su_network(institution):
+            elif is_srki_only(institution):
                 queries.insert(0, f"site:srki.ac.in {text} syllabus pdf")
+            elif is_su_network(institution):
+                domain = get_constituent_primary_domain(institution) or "sarvajanikuniversity.ac.in"
+                queries.insert(0, f"site:{domain} {text}")
+                if institution == SU:
+                    queries.insert(1, f"site:srki.ac.in SU syllabus pdf")
+                    queries.insert(2, "site:sarvajanikuniversity.ac.in constituent colleges")
         limit = settings.edu_search_max_queries
-        if institution and is_syllabus_query(text):
-            limit = max(limit, 3)
+        if institution and (is_syllabus_query(text) or is_su_network(institution) or is_srki_only(institution)):
+            limit = max(limit, 4)
         return queries[:limit]
 
     def _ensure_links(
@@ -572,8 +583,16 @@ class EduOrchestrator:
         seed_pages = [u for u in official[:2]] or [u for u in others[:1]]
         if institution and not seed_pages:
             seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
+        if institution and (is_srki_only(institution) or is_su_network(institution)):
+            seed_pages = list(
+                dict.fromkeys(
+                    get_official_urls(institution, user_query)
+                    + official
+                    + get_crawl_seed_urls(institution, [], user_query)
+                )
+            )[: get_asset_harvest_pages(institution)]
         if seed_pages and settings.external_search_enabled:
-            max_pg = settings.edu_asset_harvest_pages
+            max_pg = max(settings.edu_asset_harvest_pages, get_asset_harvest_pages(institution))
             harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),

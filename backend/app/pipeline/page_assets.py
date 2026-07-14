@@ -22,7 +22,9 @@ _IMG_SRC_RE = re.compile(
 _TAG = re.compile(r"<[^>]+>")
 _DECORATIVE_IMG = re.compile(r"(logo|icon|banner|sprite|avatar|favicon|arrow|button)", re.I)
 
+_FORM_HINT = re.compile(r"(form|application|prospectus|brochure|download)", re.I)
 _TOPIC_HINTS: dict[str, tuple[str, ...]] = {
+    "form": ("form", "application", "prospectus", "brochure", "download"),
     "admission": ("admission", "admit", "apply", "application", "prospectus", "brochure", "entrance"),
     "fee": ("fee", "fees", "tuition", "charges", "cost"),
     "syllabus": ("syllabus", "curriculum", "scheme", "regulation", "credit"),
@@ -63,6 +65,8 @@ def _score_link(url: str, label: str, query: str) -> int:
         score += 3
     if _FILE_IMG.search(url):
         score += 2
+    if _FORM_HINT.search(blob):
+        score += 4
     if _is_official_url(url):
         score += 5
     if "blog" in blob:

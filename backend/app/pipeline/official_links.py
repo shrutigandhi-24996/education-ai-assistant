@@ -6,15 +6,29 @@ import re
 from urllib.parse import urlparse
 
 from backend.app.pipeline.institution_catalog import (
+    BRCM,
     GTU,
+    IDPT,
+    SCET,
+    SCCCA,
+    SCLA,
+    SCOL,
+    SCOPA,
+    SCTCC,
+    SRLIM,
     SRKI,
     SU,
+    SU_CONSTITUENT_SITES,
     VNSGU,
+    all_su_constituent_domains,
     get_crawl_seed_urls,
     get_extra_domains,
     is_gtu_network,
     is_su_network,
 )
+
+_SU_ADMISSION_PORTAL = "https://student.sarvajanikuniversity.ac.in:8080/admissionindex.html"
+_SU_SYLLABUS_HUB = "https://www.srki.ac.in/pages/su-syllabus/"
 
 # Canonical institution name -> topic -> official URLs (verified university domains).
 INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
@@ -55,23 +69,41 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
     },
     SRKI: {
         "default": ["https://www.srki.ac.in/"],
-        "admission": ["https://www.srki.ac.in/pages/admission-corner/"],
+        "admission": [
+            "https://www.srki.ac.in/pages/admission-corner/",
+            _SU_ADMISSION_PORTAL,
+        ],
+        "contact": [
+            "https://www.srki.ac.in/contact/",
+        ],
+        "fee": [
+            "https://www.srki.ac.in/pages/fees-structure/",
+            "https://www.srki.ac.in/pages/fees-payment/",
+            "https://www.srki.ac.in/pages/fees-payment-notice/",
+        ],
         "syllabus": [
-            "https://www.srki.ac.in/pages/su-syllabus/",
+            _SU_SYLLABUS_HUB,
             "https://www.srki.ac.in/pages/courses-offered/",
             "https://www.srki.ac.in/pages/srki-constituent-college-of-sarvajanik-university-/",
         ],
         "academics": [
-            "https://www.srki.ac.in/pages/su-syllabus/",
+            _SU_SYLLABUS_HUB,
             "https://www.srki.ac.in/pages/courses-offered/",
+            "https://www.srki.ac.in/pages/history/",
+        ],
+        "form": [
+            "https://www.srki.ac.in/pages/admission-corner/",
+            "https://www.srki.ac.in/pages/fees-payment/",
         ],
         "syllabus_pdfs": [
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_CS_Sem1_Syllabus_CS_2024-25-1-16.pdf",
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_IT_Sem1_Syllabus_IT_2024-25.pdf",
             "https://www.srki.ac.in/upload/2022-23/B.Sc%20IT.pdf",
         ],
-        "syllabus_portal": [
-            "https://www.srki.ac.in/pages/su-syllabus/",
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+        "admission_portal": [
+            "https://www.srki.ac.in/pages/admission-corner/",
+            _SU_ADMISSION_PORTAL,
         ],
     },
     "Gujarat Technological University": {
@@ -99,13 +131,13 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         "default": ["https://www.svnit.ac.in/"],
         "admission": ["https://www.svnit.ac.in/admission"],
     },
-    "Sarvajanik University": {
+    SU: {
         "default": [
             "https://www.sarvajanikuniversity.ac.in/",
             "https://sarvajanikuniversity.ac.in/aboutus/",
         ],
         "syllabus": [
-            "https://www.srki.ac.in/pages/su-syllabus/",
+            _SU_SYLLABUS_HUB,
             "https://www.sarvajanikuniversity.ac.in/",
             "https://sarvajanikuniversity.ac.in/aboutus/",
         ],
@@ -114,32 +146,118 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://www.srki.ac.in/pages/courses-offered/",
         ],
         "admission": [
-            "https://www.sarvajanikuniversity.ac.in/",
+            _SU_ADMISSION_PORTAL,
             "https://www.srki.ac.in/pages/admission-corner/",
+            "https://www.sarvajanikuniversity.ac.in/",
+        ],
+        "contact": [
+            "https://www.sarvajanikuniversity.ac.in/",
         ],
         "syllabus_portal": [
-            "https://www.srki.ac.in/pages/su-syllabus/",
+            _SU_SYLLABUS_HUB,
             "https://sarvajanikuniversity.ac.in/aboutus/",
         ],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
     },
-    "Sarvajanik College of Engineering and Technology": {
+    SCET: {
         "default": ["https://www.scet.ac.in/"],
-        "admission": ["https://www.scet.ac.in/"],
-        "syllabus": ["https://www.scet.ac.in/", "https://www.srki.ac.in/pages/su-syllabus/"],
-        "academics": ["https://www.scet.ac.in/"],
+        "admission": ["https://www.scet.ac.in/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://www.scet.ac.in/academics/", _SU_SYLLABUS_HUB],
+        "academics": ["https://www.scet.ac.in/academics/", "https://www.scet.ac.in/"],
+        "contact": ["https://www.scet.ac.in/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
     },
-    "B.R.C.M. College of Business Administration": {
+    SCOL: {
+        "default": ["https://sarvajaniklaw.org/"],
+        "admission": ["https://sarvajaniklaw.org/", _SU_ADMISSION_PORTAL],
+        "syllabus": [_SU_SYLLABUS_HUB, "https://sarvajaniklaw.org/"],
+        "academics": ["https://sarvajaniklaw.org/"],
+        "contact": ["https://sarvajaniklaw.org/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    BRCM: {
         "default": ["https://www.brcmbba.org/"],
-        "admission": ["https://www.brcmbba.org/"],
-        "syllabus": ["https://www.brcmbba.org/"],
+        "admission": ["https://www.brcmbba.org/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://www.brcmbba.org/", _SU_SYLLABUS_HUB],
+        "academics": ["https://www.brcmbba.org/"],
+        "contact": ["https://www.brcmbba.org/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    SCCCA: {
+        "default": ["https://www.sccca.ac.in/"],
+        "admission": ["https://www.sccca.ac.in/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://www.sccca.ac.in/", _SU_SYLLABUS_HUB],
+        "academics": ["https://www.sccca.ac.in/"],
+        "contact": ["https://www.sccca.ac.in/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    SRLIM: {
+        "default": ["https://srlimba.ac.in/"],
+        "admission": ["https://srlimba.ac.in/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://srlimba.ac.in/", _SU_SYLLABUS_HUB],
+        "academics": ["https://srlimba.ac.in/"],
+        "contact": ["https://srlimba.ac.in/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    SCOPA: {
+        "default": ["https://www.scopa-surat.ac.in/"],
+        "admission": ["https://www.scopa-surat.ac.in/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://www.scopa-surat.ac.in/", _SU_SYLLABUS_HUB],
+        "academics": ["https://www.scopa-surat.ac.in/"],
+        "contact": ["https://www.scopa-surat.ac.in/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    IDPT: {
+        "default": ["https://www.idpt-scet.ac.in/"],
+        "admission": ["https://www.idpt-scet.ac.in/", _SU_ADMISSION_PORTAL],
+        "syllabus": ["https://www.idpt-scet.ac.in/", _SU_SYLLABUS_HUB],
+        "academics": ["https://www.idpt-scet.ac.in/"],
+        "contact": ["https://www.idpt-scet.ac.in/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    SCTCC: {
+        "default": [
+            "https://sarvajanikuniversity.ac.in/aboutus/",
+            "https://www.sarvajanikuniversity.ac.in/",
+        ],
+        "admission": [_SU_ADMISSION_PORTAL],
+        "syllabus": [_SU_SYLLABUS_HUB],
+        "academics": ["https://sarvajanikuniversity.ac.in/aboutus/"],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
+    },
+    SCLA: {
+        "default": [
+            "https://www.sarvajanikuniversity.ac.in/pages/advertisement-sarvajanik-college-of-liberal-arts/",
+            "https://sarvajanikuniversity.ac.in/aboutus/",
+        ],
+        "admission": [
+            "https://www.sarvajanikuniversity.ac.in/pages/advertisement-sarvajanik-college-of-liberal-arts/",
+            _SU_ADMISSION_PORTAL,
+        ],
+        "syllabus": [_SU_SYLLABUS_HUB],
+        "academics": [
+            "https://www.sarvajanikuniversity.ac.in/pages/advertisement-sarvajanik-college-of-liberal-arts/",
+        ],
+        "admission_portal": [_SU_ADMISSION_PORTAL],
+        "syllabus_portal": [_SU_SYLLABUS_HUB],
     },
 }
 
 _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "admission": ("admission", "admissions", "apply", "application", "eligibility", "2026", "2025"),
-    "contact": ("contact", "address", "phone", "email"),
+    "admission": ("admission", "admissions", "apply", "application", "eligibility", "2026", "2025", "entrance"),
+    "contact": ("contact", "address", "phone", "email", "location"),
+    "fee": ("fee", "fees", "tuition", "payment", "charges", "cost"),
+    "form": ("form", "forms", "application form", "download form", "prospectus", "brochure"),
     "syllabus": ("syllabus", "curriculum", "sem", "semester", "scheme", "regulation", "nep", "course"),
-    "academics": ("academic", "academics", "department", "program", "programme", "faculty"),
+    "academics": ("academic", "academics", "department", "program", "programme", "faculty", "constituent", "college"),
 }
 
 
@@ -175,35 +293,64 @@ def get_syllabus_portal_urls(institution: str, query: str = "") -> list[str]:
     return out
 
 
+def get_admission_portal_urls(institution: str, query: str = "") -> list[str]:
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+    portals = list(catalog.get("admission_portal") or [])
+    if not portals and "admission" in _topics_for_query(query):
+        portals = [u for u in catalog.get("admission", []) if "admission" in u.lower()]
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in portals:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
 def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
     """High-priority official portal pages for syllabus/admission queries."""
     low = query.lower()
     is_syllabus = any(w in low for w in _TOPIC_KEYWORDS["syllabus"])
-    if not is_syllabus:
+    is_admission = any(w in low for w in _TOPIC_KEYWORDS["admission"])
+    if not is_syllabus and not is_admission:
         return []
     resources: list[dict] = []
-    for url in get_syllabus_portal_urls(institution, query):
-        if institution == GTU:
-            title = "GTU official syllabus portal — select course & semester"
-        elif institution == SRKI:
-            title = "SRKI official syllabus page (Sarvajanik University)"
-        elif institution == SU:
-            title = "Sarvajanik University syllabus & constituent colleges"
-        elif institution == VNSGU:
-            title = "VNSGU official syllabus section"
-        else:
-            title = f"{institution} official syllabus page"
-        resources.append(
-            {
-                "type": "page",
-                "url": url,
-                "title": title,
-                "score": 200,
-                "source": "curated_portal",
-                "is_portal": True,
-                "curated": True,
-            }
-        )
+    if is_syllabus:
+        for url in get_syllabus_portal_urls(institution, query):
+            if institution == GTU:
+                title = "GTU official syllabus portal — select course & semester"
+            elif institution == SRKI:
+                title = "SRKI official syllabus page (Sarvajanik University)"
+            elif institution == SU:
+                title = "Sarvajanik University syllabus & constituent colleges"
+            elif institution == VNSGU:
+                title = "VNSGU official syllabus section"
+            else:
+                title = f"{institution} official syllabus page"
+            resources.append(
+                {
+                    "type": "page",
+                    "url": url,
+                    "title": title,
+                    "score": 200,
+                    "source": "curated_portal",
+                    "is_portal": True,
+                    "curated": True,
+                }
+            )
+    if is_admission:
+        for url in get_admission_portal_urls(institution, query):
+            resources.append(
+                {
+                    "type": "page",
+                    "url": url,
+                    "title": f"{institution} — official admission portal",
+                    "score": 195,
+                    "source": "curated_portal",
+                    "is_portal": True,
+                    "curated": True,
+                }
+            )
     return resources
 
 
@@ -277,13 +424,26 @@ def get_official_search_results(institution: str, query: str = "") -> list[dict]
 # Known domain roots per institution (used to block cross-college URL mixing).
 _INSTITUTION_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     SRKI: ("srki.ac.in",),
-    SU: ("sarvajanikuniversity.ac.in", "sarvajanikuniversity.edu.in", "srki.ac.in", "scet.ac.in"),
-    "Sarvajanik College of Engineering and Technology": ("scet.ac.in", "sarvajanikuniversity.ac.in"),
-    "B.R.C.M. College of Business Administration": ("brcmbba.org", "sarvajanikuniversity.ac.in"),
-    "Gujarat Technological University": ("gtu.ac.in",),
+    SU: tuple(sorted(all_su_constituent_domains())),
+    SCET: ("scet.ac.in", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    SCOL: ("sarvajaniklaw.org", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    BRCM: ("brcmbba.org", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    SCCCA: ("sccca.ac.in", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    SRLIM: ("srlimba.ac.in", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    SCOPA: ("scopa-surat.ac.in", "sarvajanikuniversity.ac.in", "srki.ac.in"),
+    IDPT: ("idpt-scet.ac.in", "sarvajanikuniversity.ac.in", "srki.ac.in", "scet.ac.in"),
+    SCTCC: ("sarvajanikuniversity.ac.in", "srki.ac.in"),
+    SCLA: ("sarvajanikuniversity.ac.in", "srki.ac.in"),
+    GTU: ("gtu.ac.in",),
     VNSGU: ("vnsgu.ac.in", "vnsguj.ac.in", "vnsguadm.samarth.edu.in", "vnsgu.net"),
     "Sardar Vallabhbhai National Institute of Technology Surat": ("svnit.ac.in",),
 }
+
+for _site in SU_CONSTITUENT_SITES:
+    _canonical = _site["canonical"]
+    if _canonical in _INSTITUTION_DOMAIN_HINTS:
+        continue
+    _INSTITUTION_DOMAIN_HINTS[_canonical] = tuple(_site["domains"])
 
 _JUNK_PDF_TITLE = re.compile(
     r"^(view(\s*\(\d+\))?(\.pdf)?|click\s*here\.+|download|here\.+|\.pdf)$",
