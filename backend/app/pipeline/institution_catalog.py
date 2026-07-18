@@ -111,7 +111,7 @@ _SU_REGION_HINTS = (
     "nep",
 )
 
-# Official SRKI pages for menu/sub-menu crawl (syllabus hub for whole SU).
+# Official SRKI pages for menu/sub-menu crawl (syllabus hub + department pages).
 SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.srki.ac.in/",
     "https://www.srki.ac.in/pages/su-syllabus/",
@@ -123,7 +123,46 @@ SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.srki.ac.in/pages/fees-payment/",
     "https://www.srki.ac.in/pages/fees-payment-notice/",
     "https://www.srki.ac.in/pages/history/",
+    "https://www.srki.ac.in/department/computer-science/",
+    "https://www.srki.ac.in/department/microbiology/",
+    "https://www.srki.ac.in/department/biotechnology/",
+    "https://www.srki.ac.in/department/environmental-science/",
+    "https://www.srki.ac.in/department/chemistry/",
 )
+
+# Course → department page (official syllabus PDFs live under department menus).
+SRKI_DEPARTMENT_BY_COURSE: dict[str, str] = {
+    "computer science": "https://www.srki.ac.in/department/computer-science/",
+    "cs": "https://www.srki.ac.in/department/computer-science/",
+    "information technology": "https://www.srki.ac.in/department/computer-science/",
+    "it": "https://www.srki.ac.in/department/computer-science/",
+    "aids": "https://www.srki.ac.in/department/computer-science/",
+    "artificial intelligence": "https://www.srki.ac.in/department/computer-science/",
+    "data science": "https://www.srki.ac.in/department/computer-science/",
+    "microbiology": "https://www.srki.ac.in/department/microbiology/",
+    "mb": "https://www.srki.ac.in/department/microbiology/",
+    "biotechnology": "https://www.srki.ac.in/department/biotechnology/",
+    "bt": "https://www.srki.ac.in/department/biotechnology/",
+    "environmental science": "https://www.srki.ac.in/department/environmental-science/",
+    "es": "https://www.srki.ac.in/department/environmental-science/",
+    "chemistry": "https://www.srki.ac.in/department/chemistry/",
+    "che": "https://www.srki.ac.in/department/chemistry/",
+    "organic chemistry": "https://www.srki.ac.in/department/chemistry/",
+}
+
+
+def get_srki_department_urls_for_query(query: str) -> list[str]:
+    """Return the SRKI department page(s) that match the course named in the query."""
+    low = (query or "").lower()
+    # Prefer longer / more specific keys first.
+    keys = sorted(SRKI_DEPARTMENT_BY_COURSE.keys(), key=len, reverse=True)
+    out: list[str] = []
+    for key in keys:
+        if re.search(rf"(?<![a-z0-9]){re.escape(key)}(?![a-z0-9])", low):
+            url = SRKI_DEPARTMENT_BY_COURSE[key]
+            if url not in out:
+                out.append(url)
+    return out
 
 SU_PARENT_SEEDS: tuple[str, ...] = (
     "https://www.sarvajanikuniversity.ac.in/",
@@ -315,6 +354,8 @@ def get_crawl_seed_urls(institution: str, base_urls: list[str], query: str = "")
     low = (query or "").lower()
 
     if institution == SRKI:
+        # Put the matching department page first so syllabus PDFs are harvested early.
+        seeds.extend(get_srki_department_urls_for_query(query))
         seeds.extend(SRKI_OFFICIAL_SEEDS)
     elif is_su_network(institution):
         for site in SU_CONSTITUENT_SITES:

@@ -23,6 +23,7 @@ from backend.app.pipeline.institution_catalog import (
     all_su_constituent_domains,
     get_crawl_seed_urls,
     get_extra_domains,
+    get_srki_department_urls_for_query,
     is_gtu_network,
     is_su_network,
 )
@@ -107,10 +108,48 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://www.srki.ac.in/pages/admission-corner/",
             "https://www.srki.ac.in/pages/fees-payment/",
         ],
+        # Official syllabus PDFs harvested from SRKI department pages (2023-24 NEP + older semesters).
         "syllabus_pdfs": [
+            # Microbiology / Biotech / Chemistry shared Sem-1 (user-verified official link)
+            "https://www.srki.ac.in/upload/2023-24/syllabus/bt-ch-mb-sem1-merged.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20MB%20COMPLETE.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20BT%20COMPLETE.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20CHE%20COMPLETE.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20ES%20COMPLETE.pdf",
+            # Computer Science / IT / AIDS
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_CS_Sem1_Syllabus_CS_2024-25-1-16.pdf",
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_IT_Sem1_Syllabus_IT_2024-25.pdf",
-            "https://www.srki.ac.in/upload/2022-23/B.Sc%20IT.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/cs-sem-1.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/bsccs_2023_nep_16-06-23.pdf",
+            "https://www.srki.ac.in/upload/2023-24/syllabus/BScAIDS_Sem-1.pdf",
+            "https://www.srki.ac.in/upload/2021-22/bsc_cs_sem-2.pdf",
+            "https://www.srki.ac.in/upload/2021-22/bsc_cs_sem-3.pdf",
+            "https://www.srki.ac.in/upload/2021-22/bsc_cs_sem-4.pdf",
+            "https://www.srki.ac.in/upload/2021-22/bsc_cs_sem-5.pdf",
+            "https://www.srki.ac.in/upload/2021-22/bsc_cs_sem-6.pdf",
+            # Microbiology older semester PDFs
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20mb%20sem%202.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20mb%20sem%203.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20mb%20sem%204.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20mb%20sem%205.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20mb%20sem%206.pdf",
+            "https://www.srki.ac.in/upload/2021-22/m.sc.%20mb%20sem%201.pdf",
+            "https://www.srki.ac.in/upload/2021-22/m.sc.%20mb%20sem%202.pdf",
+            # Biotechnology older semester PDFs
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20biotech%20sem%202.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20biotech%20sem%203.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20bt-sem-2.pdf",
+            "https://www.srki.ac.in/upload/2022-23/m.sc.%20biotechnology%20sem-1%20(1).pdf",
+            # Environmental Science
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20es%20sem%202.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20es%20sem%203.pdf",
+            "https://www.srki.ac.in/upload/2022-23/m%20sc%20es%20sem%201.pdf",
+            # Chemistry
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20chemistry%20sem.-ii.pdf",
+            "https://www.srki.ac.in/upload/2021-22/m.sc.%20organic%20chemistry%20semester%20-%20i_1.pdf",
+            # M.Sc. IT / MCT
+            "https://www.srki.ac.in/upload/2021-22/msc_it_sem-1-1-6.pdf",
+            "https://www.srki.ac.in/upload/2021-22/msc_it_sem-2.pdf",
         ],
         "syllabus_portal": [_SU_SYLLABUS_HUB],
         "admission_portal": [
@@ -476,6 +515,21 @@ def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
                     "curated": True,
                 }
             )
+        # SRKI department pages host the actual semester syllabus PDFs.
+        if institution == SRKI:
+            for dept_url in get_srki_department_urls_for_query(query):
+                dept_name = dept_url.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+                resources.append(
+                    {
+                        "type": "page",
+                        "url": dept_url,
+                        "title": f"SRKI — {dept_name} department (official syllabus PDFs)",
+                        "score": 205,
+                        "source": "curated_portal",
+                        "is_portal": True,
+                        "curated": True,
+                    }
+                )
     # Multi-intent (e.g. "admission process and fees"): show the admission portal
     # card alongside the fee card instead of dropping it.
     if is_admission and not is_contact:
@@ -664,51 +718,115 @@ def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
         return out
     pdfs = catalog.get("syllabus_pdfs") or []
     for url in pdfs:
-        label = url.rsplit("/", 1)[-1]
-        score = 20
-        label_l = label.lower()
-        if "sem1" in low or "sem 1" in low or "sem-1" in low or "semester 1" in low or "semester-1" in low:
-            if "sem1" in label_l or "sem-1" in label_l or "sem_1" in label_l or "1-16" in label_l:
-                score += 40
-            if "sem2" in label_l or "sem-2" in label_l or "sem_2" in label_l or "17-29" in label_l:
-                score -= 40
-        if "sem2" in low or "sem 2" in low or "sem-2" in low or "semester 2" in low:
-            if "sem2" in label_l or "sem-2" in label_l or "sem_2" in label_l:
-                score += 40
-            if "sem1" in label_l or "sem-1" in label_l:
-                score -= 40
-        if "it" in low.split() or "information technology" in low:
-            if "_it_" in label_l or "bsc_it" in label_l or "it_202" in label_l or "b.sc%20it" in label_l:
-                score += 25
-            if "_cs_" in label_l and "_it_" not in label_l:
-                score -= 25
-        if "cs" in low.split() or "computer science" in low:
-            if "_cs_" in label_l or "bsccs" in label_l or "computer" in label_l:
-                score += 25
-            if "_it_" in label_l and "_cs_" not in label_l:
-                score -= 25
-        if "bca" in low and "bca" in label_l:
-            score += 10
-        if "bsc" in low and ("b.sc" in label_l or "bsc" in label_l):
-            score += 8
-        if "data science" in low and "data" in label_l:
-            score += 8
-        if "2025-26" in label_l or "2025" in label_l:
-            score += 6
-        if "2024-25" in label_l or "2024" in label_l:
-            score += 5
+        label = unquote(url.rsplit("/", 1)[-1])
+        score = _score_syllabus_pdf(low, label, url)
+        if score < 15:
+            continue
         out.append(
             {
                 "type": "pdf",
                 "url": url,
-                "title": label,
+                "title": f"Official syllabus — {label}",
                 "score": score,
                 "source": "curated",
                 "curated": True,
             }
         )
     out.sort(key=lambda x: x["score"], reverse=True)
-    return out
+    if out:
+        # Keep only strong matches near the best score (avoid mixing B.Sc./M.Sc. or wrong semesters).
+        best = out[0]["score"]
+        out = [r for r in out if r["score"] >= max(best - 50, 80)] or out[:1]
+    return out[:3]
+
+
+def _score_syllabus_pdf(query_low: str, label: str, url: str = "") -> int:
+    """Rank an official syllabus PDF against the user's course + semester request."""
+    label_l = unquote(label).lower().replace("%20", " ")
+    blob = f"{label_l} {unquote(url).lower()}"
+    score = 20
+
+    # --- Semester match ---
+    sem_req = None
+    for n in range(1, 9):
+        if re.search(rf"\bsem(?:ester)?[\s\-]*{n}\b", query_low):
+            sem_req = n
+            break
+    if sem_req is not None:
+        if re.search(rf"\bsem(?:ester)?[\s\.\-]*{sem_req}\b|sem{sem_req}\b|sem_{sem_req}\b|-{sem_req}\.pdf", blob):
+            score += 45
+        elif re.search(r"\bsem(?:ester)?[\s\.\-]*[1-8]\b", blob) or re.search(r"sem[1-8]\b", blob):
+            # Wrong semester in filename — demote strongly.
+            score -= 50
+        # Complete/merged NEP packs still useful when semester is requested.
+        if "complete" in blob or "merged" in blob:
+            if sem_req == 1 and ("sem1" in blob or "sem-1" in blob or "sem 1" in blob or "merged" in blob):
+                score += 20
+            elif "complete" in blob:
+                score += 8
+
+    # --- Course / programme match ---
+    course_boosts: list[tuple[tuple[str, ...], tuple[str, ...], int]] = [
+        (("microbiology", " mb ", " mb%", "/mb%", "b.sc. mb", "b sc mb"), ("mb", "microbiology", "bt-ch-mb"), 55),
+        (("biotechnology", " biotech", " bt ", "b.sc. bt", "b sc bt"), ("bt", "biotech", "biotechnology", "bt-ch-mb"), 55),
+        (("chemistry", " che ", "organic chemistry"), ("che", "chemistry", "organic", "bt-ch-mb", "ch-mb"), 55),
+        (("environmental", " env ", " es "), (" es ", "es_", "environmental", "env"), 55),
+        (("information technology", " bsc it", "b.sc it", " bsc_it"), ("_it_", "bsc_it", "it_202", "b.sc it", "b.sc%20it", "msc_it"), 55),
+        (("computer science", " bsc cs", "b.sc cs", "computer"), ("_cs_", "bsccs", "cs-sem", "computer", "bsc_cs"), 55),
+        (("aids", "artificial intelligence", "data science"), ("aids", "data", "ai"), 55),
+        (("mobile and cloud", "mct", "wmt"), ("mct", "wmt", "mobile"), 40),
+        (("pgdmlt", "medical laboratory"), ("pgdmlt", "mlt"), 40),
+    ]
+    matched_course = False
+    for q_hints, file_hints, boost in course_boosts:
+        if any(h.strip() in query_low for h in q_hints):
+            if any(h in blob for h in file_hints):
+                score += boost
+                matched_course = True
+            else:
+                score -= 35
+
+    # Degree level (strict — do not mix B.Sc. and M.Sc. PDFs)
+    wants_msc = bool(re.search(r"\bm\.?\s*sc\.?\b|\bmsc\b", query_low))
+    wants_bsc = bool(re.search(r"\bb\.?\s*sc\.?\b|\bbsc\b", query_low))
+    file_is_msc = bool(re.search(r"\bm\.?\s*sc\.?\b|\bmsc[_\s\-]|\bm%20sc", blob))
+    file_is_bsc = bool(re.search(r"\bb\.?\s*sc\.?\b|\bbsc[_\s\-]|bt-ch-mb|bsccs|bscaids", blob))
+    if wants_msc and not wants_bsc:
+        if file_is_msc:
+            score += 18
+        if file_is_bsc and not file_is_msc:
+            score -= 60
+    if wants_bsc and not wants_msc:
+        if file_is_bsc or "bt-ch-mb" in blob or "nep 2024 mb" in blob or "nep 2024 bt" in blob:
+            score += 18
+        if file_is_msc and not file_is_bsc:
+            score -= 60
+
+    # Recency
+    if "2024-25" in blob or "2024" in blob or "nep 2024" in blob:
+        score += 8
+    if "2023-24" in blob or "2023" in blob:
+        score += 6
+    if "2021-22" in blob:
+        score -= 4
+
+    # Prefer syllabus-folder / NEP packs over activity reports that slipped in.
+    if "/syllabus/" in blob or "syllabus" in blob or "nep" in blob or "complete" in blob:
+        score += 10
+    if "report" in blob or "visit" in blob or "celebration" in blob:
+        score -= 40
+
+    if not matched_course and any(
+        w in query_low
+        for w in (
+            "microbiology", "biotechnology", "chemistry", "environmental",
+            "computer science", "information technology", "aids",
+        )
+    ):
+        # Query named a course but this PDF doesn't match — keep score low.
+        score = min(score, 10)
+
+    return score
 
 
 def filter_urls_for_institution(urls: list[str], institution: str) -> list[str]:

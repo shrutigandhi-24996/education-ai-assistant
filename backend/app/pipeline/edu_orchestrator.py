@@ -43,6 +43,7 @@ from backend.app.pipeline.institution_catalog import (
     get_constituent_primary_domain,
     get_crawl_seed_urls,
     get_parent_university,
+    get_srki_department_urls_for_query,
     is_constituent_list_query,
     is_courses_offered_query,
     is_gtu_network,
@@ -523,8 +524,41 @@ class EduOrchestrator:
             return reply
         pdfs = [r for r in (resources or []) if r.get("type") == "pdf"]
         pdfs = [r for r in pdfs if not is_junk_pdf(r.get("title", ""), r.get("url", ""))]
+        low_reply = (reply or "").lower()
+        unavailable = any(
+            p in low_reply
+            for p in (
+                "couldn't find",
+                "could not find",
+                "not available",
+                "not found",
+                "no syllabus",
+                "unable to find",
+            )
+        )
+        # If the model claimed nothing was found but we have matching official PDFs, force the links.
+        if pdfs and (unavailable or not any((r.get("url") or "").lower() in low_reply for r in pdfs[:2])):
+            if unavailable or not any((r.get("url") or "").lower() in low_reply for r in pdfs[:1]):
+                lines = ["\n\n**Official syllabus PDF (from SRKI website):**"]
+                for r in pdfs[:2]:
+                    u = r.get("url") or ""
+                    if not u:
+                        continue
+                    title = r.get("title") or self._link_label(u)
+                    lines.append(f"- [{title}]({u})")
+                if len(lines) > 1 and not all((r.get("url") or "").lower() in low_reply for r in pdfs[:1]):
+                    reply = reply + "\n".join(lines)
+            return reply
         if pdfs:
             return reply
+        curated = get_curated_pdf_results(institution, user_query) if institution else []
+        if curated:
+            lines = ["\n\n**Official syllabus PDF (from SRKI website):**"]
+            for r in curated[:2]:
+                u = r.get("url") or ""
+                title = r.get("title") or self._link_label(u)
+                lines.append(f"- [{title}]({u})")
+            return reply + "\n".join(lines)
         if institution:
             syllabus_pages = get_syllabus_portal_urls(institution, user_query) or [
                 u for u in get_official_urls(institution, user_query) if "syllabus" in u.lower()
@@ -696,6 +730,17 @@ class EduOrchestrator:
                     seed_pages = list(dict.fromkeys(seeds))[:6]
                 else:
                     seed_pages = list(dict.fromkeys(seeds))[:4]
+            elif is_syllabus_query(user_query or "") and institution == SRKI:
+                # Syllabus PDFs live on department pages — harvest those first.
+                dept = get_srki_department_urls_for_query(user_query or "")
+                seeds = (
+                    dept
+                    + get_syllabus_portal_urls(institution, user_query)
+                    + get_official_urls(institution, user_query)
+                    + official
+                    + get_crawl_seed_urls(institution, [], user_query)
+                )
+                seed_pages = list(dict.fromkeys(seeds))[:6]
             else:
                 seed_pages = list(
                     dict.fromkeys(
@@ -710,6 +755,8 @@ class EduOrchestrator:
             )
             if fee_q:
                 max_pg = max(max_pg, 5 if admission_q else 3)
+            if is_syllabus_query(user_query or "") and institution == SRKI:
+                max_pg = max(max_pg, 5)
             harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),

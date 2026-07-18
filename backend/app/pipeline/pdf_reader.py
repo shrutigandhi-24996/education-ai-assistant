@@ -57,7 +57,29 @@ def fetch_pdf_for_view(url: str) -> tuple[bytes, str]:
     return data, "application/pdf"
 
 
-def extract_text_from_pdf_bytes(data: bytes, max_pages: int = _MAX_PAGES, max_chars: int = _MAX_CHARS) -> str:
+def _course_keywords_from_query(query: str) -> tuple[str, ...]:
+    low = (query or "").lower()
+    mapping = (
+        (("microbiology", " mb "), ("microbiology", "microbial", "bacteriology", "prokaryotic", "nutrition and growth of bacteria")),
+        (("biotechnology", " biotech", " bt "), ("biotechnology", "biotech", "plant anatomy", "animal physiology")),
+        (("chemistry", " che "), ("chemistry", "organic chemistry", "analytical chemistry", "inorganic chemistry")),
+        (("environmental", " es "), ("environmental science", "environmental", "ecology", "ecosystem")),
+        (("computer science", " cs "), ("computer science", "programming", "python", "data structure")),
+        (("information technology", " it "), ("information technology", "database", "web technology")),
+        (("aids", "data science", "artificial intelligence"), ("artificial intelligence", "data science", "machine learning")),
+    )
+    for q_hints, keys in mapping:
+        if any(h.strip() in low for h in q_hints):
+            return keys
+    return ()
+
+
+def extract_text_from_pdf_bytes(
+    data: bytes,
+    max_pages: int = _MAX_PAGES,
+    max_chars: int = _MAX_CHARS,
+    query: str = "",
+) -> str:
     try:
         from pypdf import PdfReader
     except ImportError:
@@ -68,15 +90,37 @@ def extract_text_from_pdf_bytes(data: bytes, max_pages: int = _MAX_PAGES, max_ch
     except Exception:
         return ""
 
-    parts: list[str] = []
-    total = 0
-    for page in reader.pages[:max_pages]:
+    keywords = _course_keywords_from_query(query)
+    page_texts: list[tuple[int, str]] = []
+    for idx, page in enumerate(reader.pages[: max(max_pages * 3, 24)]):
         try:
             text = (page.extract_text() or "").strip()
         except Exception:
             continue
         if not text:
             continue
+        page_texts.append((idx, text))
+
+    if keywords and page_texts:
+        # Prefer pages that mention the requested course (merged BT/CH/MB PDFs).
+        primary = keywords[0]
+        scored = []
+        for idx, text in page_texts:
+            low = text.lower()
+            hit = sum(3 if k == primary else 1 for k in keywords if k in low)
+            # Strong boost when the course name appears as a programme heading.
+            if re.search(rf"\b{re.escape(primary)}\b", low):
+                hit += 5
+            if "b.sc" in low or "bsc" in low:
+                hit += 1
+            scored.append((hit, -idx, text))
+        scored.sort(reverse=True)
+        if scored and scored[0][0] > 0:
+            page_texts = [(0, t) for _, _, t in scored[:max_pages]]
+
+    parts: list[str] = []
+    total = 0
+    for _, text in page_texts[:max_pages]:
         parts.append(text)
         total += len(text)
         if total >= max_chars:
@@ -88,7 +132,7 @@ def extract_text_from_pdf_bytes(data: bytes, max_pages: int = _MAX_PAGES, max_ch
     return merged
 
 
-def read_pdf_from_url(url: str, title: str = "") -> dict[str, Any]:
+def read_pdf_from_url(url: str, title: str = "", query: str = "") -> dict[str, Any]:
     """Fetch a PDF and return extracted text plus metadata."""
     timeout = 10 if settings.edu_fast_mode else 18
     try:
@@ -96,7 +140,7 @@ def read_pdf_from_url(url: str, title: str = "") -> dict[str, Any]:
     except Exception as exc:
         return {"url": url, "title": title or url.rsplit("/", 1)[-1], "text": "", "error": str(exc)}
 
-    text = extract_text_from_pdf_bytes(data)
+    text = extract_text_from_pdf_bytes(data, query=query)
     return {
         "url": url,
         "title": title or url.rsplit("/", 1)[-1],
@@ -121,7 +165,14 @@ def enrich_pdf_resources(
     if not pdfs:
         return [r for r in resources if r.get("type") != "pdf"]
 
-    pdfs.sort(key=lambda r: r.get("score", 0), reverse=True)
+    # Prefer high score; among near-ties, prefer course-complete NEP packs for cleaner extracts.
+    pdfs.sort(
+        key=lambda r: (
+            r.get("score", 0),
+            1 if "complete" in (r.get("url") or "").lower() else 0,
+        ),
+        reverse=True,
+    )
     to_read = pdfs[:max_pdfs]
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -129,7 +180,7 @@ def enrich_pdf_resources(
     extracted: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=max_pdfs) as pool:
         futures = {
-            pool.submit(read_pdf_from_url, r["url"], r.get("title", "")): r["url"]
+            pool.submit(read_pdf_from_url, r["url"], r.get("title", ""), query): r["url"]
             for r in to_read
         }
         for fut in as_completed(futures):
