@@ -83,6 +83,7 @@ from backend.app.pipeline.page_assets import _asset_type, harvest_official_asset
 from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.site_navigator import crawl_official_site, is_syllabus_query
+from backend.app.pipeline.srki_site_map import detect_srki_topics, navigate_srki_topic
 from backend.app.pipeline.srki_syllabus_nav import (
     expand_course_short_names,
     format_course_resolution_note,
@@ -710,6 +711,30 @@ class EduOrchestrator:
             for u in nav_portals:
                 if u not in official:
                     official.insert(0, u)
+
+        # SRKI full site-map topics: scholarship, exam timetable, result, placement, campus, …
+        elif institution == SRKI and detect_srki_topics(user_query or ""):
+            for r in navigate_srki_topic(user_query or ""):
+                url = r.get("url")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                resources.append(r)
+                rtype = r.get("type", "page")
+                if rtype == "pdf":
+                    blocks.append(
+                        f"[OFFICIAL-PDF] {r.get('title') or url}\n"
+                        f"Type: PDF | From official SRKI menu page\n"
+                        f"Direct link: {url}"
+                    )
+                    official.append(url)
+                else:
+                    blocks.append(
+                        f"[OFFICIAL-PAGE] {r.get('title') or url}\n"
+                        f"Official SRKI website menu page.\n"
+                        f"Direct link: {url}"
+                    )
+                    official.insert(0, url)
 
         # Curated official links first (works even when DuckDuckGo is blocked on cloud hosts).
         if institution:

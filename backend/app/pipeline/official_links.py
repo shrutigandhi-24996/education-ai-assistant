@@ -96,17 +96,40 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         ],
         "syllabus": [
             _SU_SYLLABUS_HUB,
+            "https://www.srki.ac.in/pages/under-graduate-courses/",
+            "https://www.srki.ac.in/pages/post-graduate-courses/",
+            "https://www.srki.ac.in/pages/phd-coursework-paper-iii-amp-iv-/",
             "https://www.srki.ac.in/pages/courses-offered/",
-            "https://www.srki.ac.in/pages/srki-constituent-college-of-sarvajanik-university-/",
         ],
         "academics": [
             _SU_SYLLABUS_HUB,
             "https://www.srki.ac.in/pages/courses-offered/",
             "https://www.srki.ac.in/pages/history/",
         ],
+        "scholarship": [
+            "https://www.srki.ac.in/pages/scholarship-amp-free-ship/",
+        ],
+        "exam": [
+            "https://www.srki.ac.in/pages/examination-time-table/",
+            "https://www.srki.ac.in/pages/academic-calender/",
+        ],
+        "result": [
+            "https://www.srki.ac.in/pages/result-2024-25-and-2025-26/",
+        ],
+        "placement": [
+            "https://www.srki.ac.in/pages/training-amp-placement-cell/",
+        ],
+        "campus": [
+            "https://www.srki.ac.in/pages/hostel/",
+            "https://www.srki.ac.in/pages/library/",
+            "https://www.srki.ac.in/pages/laboratory/",
+            "https://www.srki.ac.in/pages/sports/",
+        ],
         "form": [
             "https://www.srki.ac.in/pages/admission-corner/",
-            "https://www.srki.ac.in/pages/fees-payment/",
+            "https://www.srki.ac.in/pages/application-form/",
+            "https://www.srki.ac.in/pages/lateral-and-admission-form/",
+            "https://www.srki.ac.in/pages/form/",
         ],
         # Official syllabus PDFs harvested from SRKI department pages (2023-24 NEP + older semesters).
         "syllabus_pdfs": [
@@ -321,10 +344,15 @@ _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
     "form": ("form", "forms", "application form", "download form", "prospectus", "brochure"),
     "syllabus": ("syllabus", "curriculum", "semester", "scheme", "regulation", "nep"),
     "academics": ("academic", "academics", "department", "program", "programme", "faculty", "constituent colleges"),
+    "scholarship": ("scholarship", "free ship", "freeship", "stipend", "financial aid"),
+    "exam": ("exam timetable", "examination timetable", "exam schedule", "timetable", "time table", "exam date"),
+    "result": ("result", "results", "marksheet"),
+    "placement": ("placement", "campus placement", "training and placement"),
+    "campus": ("hostel", "canteen", "laboratory", "playground", "campus facility"),
 }
 
 # Topics where PDFs / forms / images are useful to show inline.
-_MEDIA_TOPICS = frozenset({"syllabus", "admission", "fee", "form"})
+_MEDIA_TOPICS = frozenset({"syllabus", "admission", "fee", "form", "scholarship", "exam", "result"})
 _CONTACT_HINTS = ("contact", "address", "phone", "email", "location", "map", "direction")
 _SYLLABUS_MEDIA_HINTS = ("syllabus", "curriculum", "scheme", "regulation", "nep", "sem")
 _FEE_MEDIA_HINTS = (
@@ -335,6 +363,8 @@ _ADMISSION_MEDIA_HINTS = (
     "admission", "admissions", "apply", "application", "eligibility", "merit",
     "prospectus", "brochure", "admission-corner", "entrance",
 )
+_SCHOLARSHIP_MEDIA_HINTS = ("scholarship", "freeship", "free ship", "stipend", "minority", "guideline")
+_EXAM_MEDIA_HINTS = ("exam", "timetable", "time table", "schedule", "backlog", "regular", "notification")
 # Per-topic hints used when a query asks for SEVERAL topics at once (multi-intent).
 _TOPIC_MEDIA_HINTS: dict[str, tuple[str, ...]] = {
     "fee": _FEE_MEDIA_HINTS,
@@ -342,6 +372,10 @@ _TOPIC_MEDIA_HINTS: dict[str, tuple[str, ...]] = {
     "syllabus": _SYLLABUS_MEDIA_HINTS,
     "contact": _CONTACT_HINTS,
     "form": ("form", "application", "prospectus", "brochure", "download"),
+    "scholarship": _SCHOLARSHIP_MEDIA_HINTS,
+    "exam": _EXAM_MEDIA_HINTS,
+    "result": ("result", "marksheet", "marks"),
+    "placement": ("placement", "training"),
 }
 
 
@@ -487,15 +521,45 @@ def get_fee_portal_urls(institution: str, query: str = "") -> list[str]:
 
 
 def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
-    """High-priority official portal pages for syllabus/admission/contact/fee queries."""
+    """High-priority official portal pages for syllabus/admission/contact/fee/exam/scholarship."""
     topics = set(_topics_for_query(query))
     is_syllabus = "syllabus" in topics or is_syllabus_topic_query(query)
     is_admission = "admission" in topics
     is_contact = "contact" in topics
     is_fee = "fee" in topics
-    if not is_syllabus and not is_admission and not is_contact and not is_fee:
+    is_scholarship = "scholarship" in topics
+    is_exam = "exam" in topics
+    is_result = "result" in topics
+    is_placement = "placement" in topics
+    if not any(
+        (is_syllabus, is_admission, is_contact, is_fee, is_scholarship, is_exam, is_result, is_placement)
+    ):
         return []
     resources: list[dict] = []
+    catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
+
+    def _add_topic_pages(urls: list[str], title_suffix: str, score: int) -> None:
+        for url in urls:
+            resources.append(
+                {
+                    "type": "page",
+                    "url": url,
+                    "title": f"{institution} — {title_suffix}",
+                    "score": score,
+                    "source": "curated_portal",
+                    "is_portal": True,
+                    "curated": True,
+                }
+            )
+
+    if is_scholarship:
+        _add_topic_pages(list(catalog.get("scholarship") or []), "official Scholarship & Free ship page", 218)
+    if is_exam:
+        _add_topic_pages(list(catalog.get("exam") or []), "official Examination Timetable page", 218)
+    if is_result:
+        _add_topic_pages(list(catalog.get("result") or []), "official Result page", 215)
+    if is_placement:
+        _add_topic_pages(list(catalog.get("placement") or []), "official Training & Placement page", 210)
     if is_fee and not is_syllabus:
         for url in get_fee_portal_urls(institution, query):
             resources.append(

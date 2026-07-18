@@ -111,7 +111,7 @@ _SU_REGION_HINTS = (
     "nep",
 )
 
-# Official SRKI pages for menu/sub-menu crawl (syllabus hub + department pages).
+# Official SRKI pages for menu/sub-menu crawl (full site map + syllabus hubs).
 SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.srki.ac.in/",
     "https://www.srki.ac.in/pages/su-syllabus/",
@@ -125,12 +125,21 @@ SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.srki.ac.in/pages/fees-structure/",
     "https://www.srki.ac.in/pages/fees-payment/",
     "https://www.srki.ac.in/pages/fees-payment-notice/",
+    "https://www.srki.ac.in/pages/scholarship-amp-free-ship/",
+    "https://www.srki.ac.in/pages/examination-time-table/",
+    "https://www.srki.ac.in/pages/result-2024-25-and-2025-26/",
+    "https://www.srki.ac.in/pages/academic-calender/",
+    "https://www.srki.ac.in/pages/previous-question-paper/",
+    "https://www.srki.ac.in/pages/training-amp-placement-cell/",
+    "https://www.srki.ac.in/pages/hostel/",
+    "https://www.srki.ac.in/pages/library/",
     "https://www.srki.ac.in/pages/history/",
     "https://www.srki.ac.in/department/computer-science/",
     "https://www.srki.ac.in/department/microbiology/",
     "https://www.srki.ac.in/department/biotechnology/",
     "https://www.srki.ac.in/department/environmental-science/",
     "https://www.srki.ac.in/department/chemistry/",
+    "https://www.srki.ac.in/department/allied/",
 )
 
 # Course → department page (official syllabus PDFs live under department menus).

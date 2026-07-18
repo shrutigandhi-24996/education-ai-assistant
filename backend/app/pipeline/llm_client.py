@@ -108,6 +108,9 @@ SYLLABUS ANSWERS (critical):
 - Short course names: ES=Environmental Science, BT=Biotechnology, MB=Microbiology, CH/CHE=Chemistry,
   CS=Computer Science, IT=Information Technology, AIDS=AI & Data Science, MCT=Mobile & Cloud Technology.
 - SRKI official path: Academic → SU SYLLABUS → Under Graduate / Post Graduate / Ph.D. Coursework pages.
+- Scholarship → https://www.srki.ac.in/pages/scholarship-amp-free-ship/ (+ any scholarship PDFs in WEB CONTEXT).
+- Exam timetable/schedule → https://www.srki.ac.in/pages/examination-time-table/ (+ timetable PDFs in WEB CONTEXT).
+- Always prefer official SRKI menu pages and PDFs from WEB CONTEXT over generic advice.
 - If PDF text is thin, still list the official semester PDF links from WEB CONTEXT (do not apologize).
 - If BSc IT is requested but only a related CS syllabus PDF exists on the site, say that explicitly and still cite that official PDF.
 
