@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from backend.app.pipeline.institution_catalog import (
     BRCM,
@@ -71,7 +71,13 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
         "default": ["https://www.srki.ac.in/"],
         "admission": [
             "https://www.srki.ac.in/pages/admission-corner/",
+            "https://www.srki.ac.in/pages/application-form/",
+            "https://www.srki.ac.in/pages/lateral-and-admission-form/",
             _SU_ADMISSION_PORTAL,
+        ],
+        "admission_pdfs": [
+            "https://www.srki.ac.in/upload/files/admission%20form.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Lateral%20and%20Transfer%20Admission%20Form.pdf",
         ],
         "contact": [
             "https://www.srki.ac.in/contact/",
@@ -620,7 +626,7 @@ def is_junk_pdf(title: str, url: str) -> bool:
 
 
 def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
-    """Return curated official PDF links matching the query topic (fees / syllabus)."""
+    """Return curated official PDF links matching the query topic (fees / admission / syllabus)."""
     catalog = INSTITUTION_OFFICIAL_LINKS.get(institution, {})
     low = (query or "").lower()
     out: list[dict] = []
@@ -638,12 +644,24 @@ def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
                     "curated": True,
                 }
             )
-        if out:
-            out.sort(key=lambda x: x["score"], reverse=True)
-            return out
+
+    if is_admission_query(query):
+        for url in catalog.get("admission_pdfs") or []:
+            label = unquote(url.rsplit("/", 1)[-1])
+            out.append(
+                {
+                    "type": "pdf",
+                    "url": url,
+                    "title": f"Official admission form — {label}",
+                    "score": 70,
+                    "source": "curated",
+                    "curated": True,
+                }
+            )
 
     if not is_syllabus_topic_query(query):
-        return []
+        out.sort(key=lambda x: x["score"], reverse=True)
+        return out
     pdfs = catalog.get("syllabus_pdfs") or []
     for url in pdfs:
         label = url.rsplit("/", 1)[-1]

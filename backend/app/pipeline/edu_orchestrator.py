@@ -687,9 +687,13 @@ class EduOrchestrator:
                 )[:3]
             elif fee_q:
                 # Fees: prioritize fees-structure / payment pages so iframe PDF is discovered.
-                seed_pages = list(
-                    dict.fromkeys(get_official_urls(institution, user_query) + official)
-                )[:4]
+                seeds = get_official_urls(institution, user_query) + official
+                if admission_q:
+                    # Multi-intent: fee page first, then admission pages — keep both topics.
+                    seeds = get_fee_portal_urls(institution, user_query) + seeds
+                    seed_pages = list(dict.fromkeys(seeds))[:6]
+                else:
+                    seed_pages = list(dict.fromkeys(seeds))[:4]
             else:
                 seed_pages = list(
                     dict.fromkeys(
@@ -703,7 +707,7 @@ class EduOrchestrator:
                 settings.edu_asset_harvest_pages, get_asset_harvest_pages(institution)
             )
             if fee_q:
-                max_pg = max(max_pg, 3)
+                max_pg = max(max_pg, 5 if admission_q else 3)
             harvested = harvest_official_assets(
                 seed_pages[:max_pg],
                 user_query or institution or (queries[0] if queries else ""),
@@ -808,13 +812,13 @@ class EduOrchestrator:
                             f"{extract}\n"
                             f"Source: {page_url}"
                         )
-            elif institution and (contact_q or fee_q):
-                # Contact/fee: extract text from the topic pages for accurate answers.
+            elif institution and (contact_q or fee_q or admission_q):
+                # Contact/fee/admission: extract text from the topic pages for accurate answers.
                 extract_urls = []
                 for u in seed_pages + official:
                     if u and u not in extract_urls and _asset_type(u) != "pdf":
                         extract_urls.append(u)
-                for page_url in extract_urls[:3]:
+                for page_url in extract_urls[: 4 if (fee_q and admission_q) else 3]:
                     extract = fetch_page_extract(page_url, user_query or institution, max_len=1400)
                     if extract:
                         blocks.append(
