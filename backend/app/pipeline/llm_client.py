@@ -12,11 +12,17 @@ plain HTTP request (no heavy SDK). Two roles:
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import httpx
 
 from backend.app.config import settings
+
+RATE_LIMIT_FALLBACK_REPLY = (
+    "I'm receiving a lot of questions right now and my AI brain hit a temporary rate limit. "
+    "Please wait a few seconds and ask again — your question will be answered normally."
+)
 
 ANALYZE_SYSTEM = """You are the analysis stage of an EDUCATION-DOMAIN assistant.
 Return ONLY a JSON object (no prose) with this exact schema:
@@ -70,6 +76,9 @@ LINKS & OFFICIAL DOCUMENTS (always do this when WEB CONTEXT is present):
 
 ANSWER FORMAT:
 - Answer ONLY the user's current question. Do NOT repeat or summarize answers from earlier chat turns.
+- MULTI-INTENT questions (the user asks 2+ things at once, e.g. "admission process AND fees structure"):
+  answer EVERY part, each under its own short bold heading (e.g. **Admission process** then **Fees structure**).
+  Give each part a complete answer with its own official link(s). Never answer only one part.
 - When PDFs, documents, or images are in WEB CONTEXT: keep the reply SHORT (2–5 sentences or a few tight bullets)
   with key facts from those sources. Skip long paragraphs and link lists.
 - When no PDF/document/image applies: use clear, justified paragraphs with headings/bullets as needed.
@@ -224,7 +233,36 @@ class LLMClient:
         )
         if has_media and max_tok > 500:
             max_tok = 500
-        return self._chat(msgs, model=model, max_tokens=max_tok).strip()
+        try:
+            return self._chat(msgs, model=model, max_tokens=max_tok).strip()
+        except httpx.HTTPStatusError as exc:
+            # Rate limit / transient upstream error: retry with the fast model and a
+            # truncated context (fits smaller per-minute token budgets) instead of
+            # crashing the whole request with a 500.
+            if exc.response.status_code in (429, 500, 502, 503):
+                short_block = (
+                    f"{inst_line}"
+                    f"User role: {role}\n"
+                    f"Detected intents: {intents}\n\n"
+                    f"WEB CONTEXT (use only this for specific facts; cite the links):\n"
+                    f"{context_block[:4000]}\n\n"
+                    f"User question (answer THIS only): {message}"
+                )
+                short_msgs = [
+                    {"role": "system", "content": GENERATE_SYSTEM},
+                    {"role": "user", "content": short_block},
+                ]
+                time.sleep(3)
+                for alt in (settings.groq_fast_model, settings.groq_model):
+                    if alt == model and alt != settings.groq_fast_model:
+                        continue
+                    try:
+                        return self._chat(short_msgs, model=alt, max_tokens=450).strip()
+                    except Exception:
+                        time.sleep(3)
+            return RATE_LIMIT_FALLBACK_REPLY
+        except Exception:
+            return RATE_LIMIT_FALLBACK_REPLY
 
 
 def is_syllabus_in_context(web_context: str) -> bool:

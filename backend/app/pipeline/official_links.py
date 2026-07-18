@@ -270,6 +270,22 @@ _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
 _MEDIA_TOPICS = frozenset({"syllabus", "admission", "fee", "form"})
 _CONTACT_HINTS = ("contact", "address", "phone", "email", "location", "map", "direction")
 _SYLLABUS_MEDIA_HINTS = ("syllabus", "curriculum", "scheme", "regulation", "nep", "sem")
+_FEE_MEDIA_HINTS = (
+    "fee", "fees", "tuition", "payment", "batch-2026", "fee_batch", "fee_202",
+    "fees-structure", "fees-payment",
+)
+_ADMISSION_MEDIA_HINTS = (
+    "admission", "admissions", "apply", "application", "eligibility", "merit",
+    "prospectus", "brochure", "admission-corner", "entrance",
+)
+# Per-topic hints used when a query asks for SEVERAL topics at once (multi-intent).
+_TOPIC_MEDIA_HINTS: dict[str, tuple[str, ...]] = {
+    "fee": _FEE_MEDIA_HINTS,
+    "admission": _ADMISSION_MEDIA_HINTS,
+    "syllabus": _SYLLABUS_MEDIA_HINTS,
+    "contact": _CONTACT_HINTS,
+    "form": ("form", "application", "prospectus", "brochure", "download"),
+}
 
 
 def _topics_for_query(query: str) -> list[str]:
@@ -321,6 +337,10 @@ def get_admission_portal_urls(institution: str, query: str = "") -> list[str]:
 def is_contact_query(query: str) -> bool:
     low = (query or "").lower()
     return any(w in low for w in _TOPIC_KEYWORDS["contact"])
+
+
+def is_admission_query(query: str) -> bool:
+    return "admission" in _topics_for_query(query)
 
 
 def is_syllabus_topic_query(query: str) -> bool:
@@ -450,7 +470,9 @@ def get_portal_page_resources(institution: str, query: str = "") -> list[dict]:
                     "curated": True,
                 }
             )
-    if is_admission and not is_contact and not is_fee:
+    # Multi-intent (e.g. "admission process and fees"): show the admission portal
+    # card alongside the fee card instead of dropping it.
+    if is_admission and not is_contact:
         for url in get_admission_portal_urls(institution, query):
             resources.append(
                 {
@@ -715,6 +737,29 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
     if not resources:
         return resources
     topics = [t for t in _topics_for_query(query) if t != "default"]
+    core_topics = set(topics) & set(_TOPIC_MEDIA_HINTS)
+
+    # Multi-intent query (e.g. "admission process and fees structure"): keep
+    # resources relevant to ANY requested topic so every intent gets its media.
+    if len(core_topics) >= 2:
+        hints = tuple(h for t in core_topics for h in _TOPIC_MEDIA_HINTS[t])
+        stale_years = ("2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25")
+        multi_out: list[dict] = []
+        for r in resources:
+            rtype = r.get("type") or "page"
+            blob = _resource_topic_blob(r)
+            if any(y in blob for y in stale_years) and not r.get("is_portal"):
+                continue
+            if r.get("is_portal") or r.get("source") == "curated_portal" or r.get("curated"):
+                multi_out.append(r)
+                continue
+            if _topic_blob_has_hint(blob, hints):
+                multi_out.append(r)
+                continue
+            if rtype == "page":
+                multi_out.append(r)
+        return list({r.get("url"): r for r in multi_out}.values())
+
     contact_only = is_contact_query(query) and not (set(topics) & {"syllabus", "fee", "admission", "form"})
     fee_only = is_fee_query(query) and not is_syllabus_topic_query(query)
     syllabus_only = is_syllabus_topic_query(query) and not fee_only

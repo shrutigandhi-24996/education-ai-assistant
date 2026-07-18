@@ -69,6 +69,7 @@ from backend.app.pipeline.official_links import (
     get_official_urls,
     get_portal_page_resources,
     get_syllabus_portal_urls,
+    is_admission_query,
     is_contact_query,
     is_fee_query,
     is_junk_pdf,
@@ -478,7 +479,12 @@ class EduOrchestrator:
         fee_pdfs = [
             r
             for r in (resources or [])
-            if r.get("type") == "pdf" and not is_junk_pdf(r.get("title", ""), r.get("url", ""))
+            if r.get("type") == "pdf"
+            and not is_junk_pdf(r.get("title", ""), r.get("url", ""))
+            and any(
+                w in f"{r.get('url', '')} {r.get('title', '')}".lower()
+                for w in ("fee", "tuition", "payment")
+            )
         ]
         if not fee_pdfs:
             fee_pdfs = get_curated_pdf_results(institution, user_query)
@@ -668,6 +674,10 @@ class EduOrchestrator:
             seed_pages = find_official_urls_for_institution(institution, user_query)[:1]
         contact_q = is_contact_query(user_query or "")
         fee_q = is_fee_query(user_query or "")
+        admission_q = is_admission_query(user_query or "")
+        # "Fee only" strictness must not apply to multi-intent questions
+        # like "admission process and fees structure".
+        fee_only_q = fee_q and not admission_q
         wants_media = query_wants_document_media(user_query or "")
         if institution and (is_srki_only(institution) or is_su_network(institution)):
             if contact_q and not wants_media:
@@ -709,7 +719,7 @@ class EduOrchestrator:
                         for w in ("contact", "address", "map", "location")
                     )
                 ]
-            elif fee_q:
+            elif fee_only_q:
                 harvested = [
                     h
                     for h in harvested
@@ -740,7 +750,7 @@ class EduOrchestrator:
 
             # Crawl official menus/sub-menus for PDFs, pages, and informative images.
             # Skip deep media crawl for contact/address-only questions.
-            if institution and not (contact_q and not wants_media) and not fee_q:
+            if institution and not (contact_q and not wants_media) and not fee_only_q:
                 nav_seeds = get_crawl_seed_urls(
                     institution,
                     list(dict.fromkeys(get_official_urls(institution, user_query) + seed_pages + official[:6])),
