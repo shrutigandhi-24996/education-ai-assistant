@@ -380,6 +380,126 @@ def is_constituent_list_query(query: str) -> bool:
     )
 
 
+_COURSE_LIST_PATTERNS = (
+    "courses offered",
+    "course offered",
+    "offered courses",
+    "which courses",
+    "what courses",
+    "list of courses",
+    "list of course",
+    "courses list",
+    "course list",
+    "available courses",
+    "courses available",
+    "which programs",
+    "which programmes",
+    "programs offered",
+    "programmes offered",
+    "degrees offered",
+    "courses does",
+    "courses do",
+)
+
+
+def is_courses_offered_query(query: str) -> bool:
+    """True for 'which courses does X offer / list of courses' style queries."""
+    low = (query or "").lower()
+    if not any(p in low for p in _COURSE_LIST_PATTERNS):
+        return False
+    # Let the full pipeline handle mixed questions (fees/syllabus/admission details).
+    if any(w in low for w in ("syllabus", "fee", "fees", "admission", "eligibility", "merit")):
+        return False
+    return True
+
+
+# Verified from https://www.srki.ac.in/pages/courses-offered/ (official page).
+_SRKI_UG_COURSES = (
+    ("Biotechnology", "90 seats"),
+    ("Chemistry", "30 seats"),
+    ("Computer Science", "30 seats"),
+    ("Information Technology", "140 seats"),
+    ("Environmental Science", "30 seats"),
+    ("Microbiology", "120 seats"),
+    ("Artificial Intelligence & Data Science (AIDS)", "70 seats"),
+)
+
+_SRKI_PG_COURSES = (
+    "M.Sc. Biotechnology",
+    "M.Sc. Organic Chemistry",
+    "M.Sc. AI and Data Science",
+    "M.Sc. Information Technology",
+    "M.Sc. Mobile and Cloud Technology",
+    "M.Sc. Environmental Science",
+    "M.Sc. Environmental Science (Industrial Safety and Environmental Management)",
+    "M.Sc. Microbiology",
+    "M.Sc. Industrial Microbiology",
+    "M.Sc. Medical Laboratory Technology",
+    "M.Sc. Clinical Embryology",
+    "PGDMLT (PG Diploma in Medical Laboratory Technology)",
+)
+
+_SRKI_COURSES_PAGE = "https://www.srki.ac.in/pages/courses-offered/"
+
+_SRKI_DEPARTMENT_PAGES = (
+    ("Computer Science", "https://www.srki.ac.in/department/computer-science/"),
+    ("Microbiology", "https://www.srki.ac.in/department/microbiology/"),
+    ("Biotechnology", "https://www.srki.ac.in/department/biotechnology/"),
+    ("Environmental Science", "https://www.srki.ac.in/department/environmental-science/"),
+    ("Chemistry", "https://www.srki.ac.in/department/chemistry/"),
+)
+
+
+def format_srki_courses_answer() -> tuple[str, list[dict], list[str]]:
+    """Curated complete list of SRKI courses from the official courses-offered page."""
+    lines = [
+        "**Courses offered by SRKI** (Shree Ramkrishna Institute of Computer Education and "
+        "Applied Sciences, Surat)",
+        "",
+        f"Official courses page: [srki.ac.in/pages/courses-offered]({_SRKI_COURSES_PAGE})",
+        "",
+        "**Undergraduate — B.Sc. / B.Sc. (Hons.), 3/4 years (6 or 8 semesters):**",
+    ]
+    for i, (name, seats) in enumerate(_SRKI_UG_COURSES, 1):
+        lines.append(f"{i}. B.Sc./B.Sc.(Hons.) {name} — {seats}")
+    lines.append("")
+    lines.append("**Postgraduate:**")
+    for i, name in enumerate(_SRKI_PG_COURSES, 1):
+        lines.append(f"{i}. {name}")
+    lines.append("")
+    lines.append(
+        "Each course's duration, intake, eligibility, and brochure are on the "
+        f"[official courses page]({_SRKI_COURSES_PAGE}). "
+        "For admissions, apply via the [Sarvajanik University admission portal]"
+        "(https://student.sarvajanikuniversity.ac.in:8080/admissionindex.html)."
+    )
+
+    resources: list[dict] = [
+        {
+            "type": "page",
+            "url": _SRKI_COURSES_PAGE,
+            "title": "SRKI — official Courses Offered page (details, eligibility & brochures)",
+            "score": 220,
+            "source": "curated_portal",
+            "is_portal": True,
+            "curated": True,
+        }
+    ]
+    for name, url in _SRKI_DEPARTMENT_PAGES:
+        resources.append(
+            {
+                "type": "page",
+                "url": url,
+                "title": f"SRKI — {name} department",
+                "score": 90,
+                "source": "curated",
+                "curated": True,
+            }
+        )
+    sources = [_SRKI_COURSES_PAGE, "https://www.srki.ac.in/"]
+    return "\n".join(lines), resources, sources
+
+
 def format_su_constituent_colleges_answer() -> tuple[str, list[dict], list[str]]:
     """Curated accurate list of SU constituent colleges with official site links."""
     lines = [

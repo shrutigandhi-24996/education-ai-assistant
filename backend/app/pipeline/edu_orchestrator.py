@@ -37,12 +37,14 @@ from backend.app.pipeline.institution_catalog import (
     PARENT_UNIVERSITY,
     SRKI,
     SU,
+    format_srki_courses_answer,
     format_su_constituent_colleges_answer,
     get_asset_harvest_pages,
     get_constituent_primary_domain,
     get_crawl_seed_urls,
     get_parent_university,
     is_constituent_list_query,
+    is_courses_offered_query,
     is_gtu_network,
     is_srki_only,
     is_su_network,
@@ -1148,6 +1150,30 @@ class EduOrchestrator:
             session.last_institution = institution
             analysis["institution"] = institution
             self._boost_analysis_for_institution(analysis, text, institution)
+
+        # Curated accurate answer for SRKI courses-offered list queries
+        # (from the official courses page — avoids partial lists from stray PDFs).
+        if is_courses_offered_query(text) and institution == SRKI:
+            reply, resources, sources = format_srki_courses_answer()
+            session.last_institution = SRKI
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": reply})
+            intents = analysis.get("intents") or ["courses_offered"]
+            grounding = self._build_grounding_meta(SRKI, sources, resources, None)
+            return {
+                "reply": reply,
+                "intent": "courses_offered",
+                "intents": intents,
+                "is_multi_intent": bool(analysis.get("is_multi_intent")),
+                "role": analysis.get("user_role"),
+                "institution": SRKI,
+                "context": self._pragmatic_context(analysis, intents, SRKI),
+                "confidence": 1.0,
+                "sources": sources,
+                "resources": resources,
+                "grounding": grounding,
+                "source": "curated_catalog",
+            }
 
         # Curated accurate answer for SU constituent-college list queries.
         if is_constituent_list_query(text) and (
