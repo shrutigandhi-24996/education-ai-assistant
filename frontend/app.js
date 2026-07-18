@@ -961,9 +961,12 @@ function appendSupplementarySources(bubble, sources, resources, primaryPdfUrl, i
     return;
   }
 
-  const extraPages = getSortedResources(resources, "page").filter((r) => !shown.has(r.url));
-  const extraSources = (sources || []).filter((u) => !shown.has(u));
-  if (!extraPages.length && !extraSources.length) return;
+  const extraPages = getSortedResources(resources, "page").filter(
+    (r) => !shown.has(r.url) && (r.is_portal || r.source === "curated_portal" || /fee|syllabus|contact|admission/i.test((r.url || "") + " " + (r.title || "")))
+  );
+  // When media is already shown, do not dump unrelated crawl URLs as "related" pills.
+  const extraSources = [];
+  if (!extraPages.length) return;
 
   const box = document.createElement("div");
   box.className = "sources sources-compact";

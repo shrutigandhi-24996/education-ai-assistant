@@ -80,6 +80,7 @@ ANSWER FORMAT:
   2) the embedded official fees PDF (for SRKI: https://www.srki.ac.in/upload/2025-26/Fee_Batch-2026.pdf)
   If [OFFICIAL-PDF-CONTENT] has amounts, briefly summarize key programme fees after the links.
   If amounts are unclear, still provide both links and tell the user to open the PDF — NEVER invent fee amounts.
+  Never write internal tags like [OFFICIAL-PDF-CONTENT] in the user-visible reply.
 - Separate key facts from next steps briefly; avoid redundant source listings.
 
 SYLLABUS ANSWERS (critical):

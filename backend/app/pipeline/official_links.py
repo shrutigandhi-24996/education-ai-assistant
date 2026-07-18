@@ -690,6 +690,17 @@ def _resource_topic_blob(resource: dict) -> str:
     return f"{resource.get('url', '')} {resource.get('title', '')}".lower()
 
 
+def _topic_blob_has_hint(blob: str, hints: tuple[str, ...] | list[str]) -> bool:
+    """Match topic hints as whole path/title tokens, not substrings (e.g. fee ≠ Feedback)."""
+    low = (blob or "").lower()
+    for h in hints:
+        if not h:
+            continue
+        if re.search(rf"(?<![a-z0-9]){re.escape(h.lower())}(?![a-z0-9])", low):
+            return True
+    return False
+
+
 def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
     """Keep only resources that help answer this query (no irrelevant PDFs/images)."""
     if not resources:
@@ -697,12 +708,13 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
     topics = [t for t in _topics_for_query(query) if t != "default"]
     contact_only = is_contact_query(query) and not (set(topics) & {"syllabus", "fee", "admission", "form"})
     fee_only = is_fee_query(query) and not is_syllabus_topic_query(query)
+    syllabus_only = is_syllabus_topic_query(query) and not fee_only
     wants_media = query_wants_document_media(query)
+    low = (query or "").lower()
 
     out: list[dict] = []
     for r in resources:
         rtype = r.get("type") or "page"
-        blob = _resource_blob(r)
         topic_blob = _resource_topic_blob(r)
         if r.get("is_portal") or r.get("source") == "curated_portal":
             out.append(r)
@@ -710,24 +722,42 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
 
         if contact_only:
             if rtype in ("pdf", "document", "image"):
-                if any(h in topic_blob for h in _CONTACT_HINTS):
+                if _topic_blob_has_hint(topic_blob, _CONTACT_HINTS):
                     out.append(r)
                 continue
-            if any(h in topic_blob for h in _CONTACT_HINTS):
+            if _topic_blob_has_hint(topic_blob, _CONTACT_HINTS):
                 out.append(r)
             continue
 
         if fee_only:
-            fee_hints = ("fee", "fees", "tuition", "payment", "batch-2026", "fee_batch", "fee_202")
+            fee_hints = ("fee", "fees", "tuition", "payment", "batch-2026", "fee_batch", "fee_202", "fees-structure", "fees-payment")
             if rtype in ("pdf", "document"):
-                if any(h in topic_blob for h in fee_hints) or r.get("curated"):
+                if _topic_blob_has_hint(topic_blob, fee_hints) or r.get("curated"):
                     out.append(r)
                 continue
             if rtype == "image":
-                if any(h in topic_blob for h in fee_hints):
+                if _topic_blob_has_hint(topic_blob, fee_hints):
                     out.append(r)
                 continue
-            if rtype == "page" and any(h in topic_blob for h in fee_hints):
+            if rtype == "page" and _topic_blob_has_hint(topic_blob, fee_hints):
+                out.append(r)
+            continue
+
+        if syllabus_only:
+            # Only syllabus portal + syllabus PDFs — no committees, webinars, gallery, fees.
+            if rtype == "pdf":
+                if (
+                    _topic_blob_has_hint(topic_blob, _SYLLABUS_MEDIA_HINTS)
+                    or r.get("curated")
+                    or "syllabus" in topic_blob
+                ):
+                    if _topic_blob_has_hint(topic_blob, ("fee", "fees", "tuition", "payment", "merit", "brochure")):
+                        continue
+                    out.append(r)
+                continue
+            if rtype == "page" and _topic_blob_has_hint(
+                topic_blob, ("syllabus", "curriculum", "scheme", "courses-offered", "su-syllabus")
+            ):
                 out.append(r)
             continue
 
@@ -735,15 +765,13 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
             continue
 
         if rtype == "pdf" and wants_media:
-            if is_syllabus_topic_query(query):
-                if any(h in blob for h in _SYLLABUS_MEDIA_HINTS) or r.get("curated") or r.get("has_content"):
-                    out.append(r)
-                continue
             out.append(r)
             continue
 
         if rtype == "image":
-            if any(h in topic_blob for h in ("map", "campus", "brochure", "prospectus", "fee", "form", "admission")):
+            if _topic_blob_has_hint(
+                topic_blob, ("map", "campus", "brochure", "prospectus", "fee", "fees", "form", "admission")
+            ):
                 out.append(r)
             continue
 
@@ -751,7 +779,9 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
 
     if contact_only:
         contact_pages = [
-            r for r in out if any(h in _resource_topic_blob(r) for h in _CONTACT_HINTS) or r.get("is_portal")
+            r
+            for r in out
+            if _topic_blob_has_hint(_resource_topic_blob(r), _CONTACT_HINTS) or r.get("is_portal")
         ]
         if contact_pages:
             ordered = [r for r in out if r.get("is_portal")] + [
@@ -760,16 +790,15 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
             return list({r.get("url"): r for r in ordered}.values())
 
     if fee_only:
-        fee_hints = ("fee", "fees", "tuition", "payment", "batch-2026", "fee_batch", "fee_202")
+        fee_hints = ("fee", "fees", "tuition", "payment", "batch-2026", "fee_batch", "fee_202", "fees-structure", "fees-payment")
         fee_items = [
             r
             for r in out
             if r.get("is_portal")
-            or any(h in _resource_topic_blob(r) for h in fee_hints)
+            or _topic_blob_has_hint(_resource_topic_blob(r), fee_hints)
             or (r.get("type") == "pdf" and r.get("curated"))
         ]
         if fee_items:
-            # Prefer newest fee PDF; drop older fee images/PDFs when a current PDF exists.
             current = [
                 r
                 for r in fee_items
@@ -777,19 +806,16 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
                 and any(y in _resource_topic_blob(r) for y in ("2025-26", "2026", "batch-2026"))
             ]
             if current:
+                # Keep portal + fee-topic pages + current fee PDF only.
                 fee_items = [
                     r
                     for r in fee_items
                     if r.get("is_portal")
-                    or r.get("type") == "page"
                     or r in current
-                    or (r.get("type") == "pdf" and r.get("curated") and r in current)
-                ]
-                # Keep portal + current PDFs only (no stale fee images).
-                fee_items = [
-                    r
-                    for r in fee_items
-                    if r.get("is_portal") or r.get("type") == "page" or r.get("type") == "pdf"
+                    or (
+                        r.get("type") == "page"
+                        and _topic_blob_has_hint(_resource_topic_blob(r), fee_hints)
+                    )
                 ]
             fee_items.sort(
                 key=lambda r: (
@@ -799,6 +825,77 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
                     -(r.get("score") or 0),
                 )
             )
-            return list({r.get("url"): r for r in fee_items}.values())
+            return list({r.get("url"): r for r in fee_items}.values())[:4]
+
+    if syllabus_only:
+        pdfs = [r for r in out if r.get("type") == "pdf"]
+        portals = [r for r in out if r.get("is_portal") or r.get("source") == "curated_portal"]
+        pages = [
+            r
+            for r in out
+            if r.get("type") == "page"
+            and not r.get("is_portal")
+            and _topic_blob_has_hint(_resource_topic_blob(r), ("syllabus", "curriculum", "su-syllabus"))
+        ]
+
+        def _pdf_rank(r: dict) -> tuple:
+            b = _resource_topic_blob(r)
+            score = r.get("score") or 0
+            if "it" in low.split() or "information technology" in low:
+                if "_it_" in b or "bsc_it" in b or "b.sc%20it" in b or "it_202" in b:
+                    score += 50
+                if "_cs_" in b or "computer%20science" in b:
+                    score -= 30
+            if "cs" in low.split() or "computer science" in low:
+                if "_cs_" in b or "computer" in b:
+                    score += 50
+            return (-score,)
+
+        pdfs.sort(key=_pdf_rank)
+        keep = portals + pdfs[:2] + pages[:1]
+        return list({r.get("url"): r for r in keep}.values())
 
     return out
+
+
+def filter_sources_for_query(
+    sources: list[str],
+    query: str,
+    resources: list[dict] | None = None,
+) -> list[str]:
+    """Limit source pills to URLs that actually answer this query."""
+    if not sources:
+        return sources
+    resources = resources or []
+    keep: list[str] = []
+    seen: set[str] = set()
+
+    for r in resources:
+        u = r.get("url") or ""
+        if u and u not in seen:
+            seen.add(u)
+            keep.append(u)
+
+    topics = [t for t in _topics_for_query(query) if t != "default"]
+    topic_hints: list[str] = []
+    if "contact" in topics:
+        topic_hints.extend(["contact", "address"])
+    if "fee" in topics:
+        topic_hints.extend(["fee", "fees", "payment"])
+    if "syllabus" in topics or is_syllabus_topic_query(query):
+        topic_hints.extend(["syllabus", "curriculum", "scheme"])
+    if "admission" in topics:
+        topic_hints.extend(["admission"])
+
+    for u in sources:
+        if u in seen:
+            continue
+        low = u.lower()
+        if topic_hints and any(h in low for h in topic_hints):
+            seen.add(u)
+            keep.append(u)
+
+    # Cap noise in the UI.
+    if is_contact_query(query) or is_fee_query(query) or is_syllabus_topic_query(query):
+        return keep[:5]
+    return keep[:8]

@@ -363,3 +363,90 @@ def get_asset_harvest_pages(institution: str) -> int:
     if is_su_network(institution):
         return 6
     return 3
+
+
+def is_constituent_list_query(query: str) -> bool:
+    low = (query or "").lower()
+    return any(
+        p in low
+        for p in (
+            "constituent college",
+            "constituent colleges",
+            "colleges under",
+            "list of college",
+            "list of colleges",
+            "affiliated college",
+        )
+    )
+
+
+def format_su_constituent_colleges_answer() -> tuple[str, list[dict], list[str]]:
+    """Curated accurate list of SU constituent colleges with official site links."""
+    lines = [
+        "**Sarvajanik University (Surat) — constituent colleges**",
+        "",
+        "Official university page: [sarvajanikuniversity.ac.in/aboutus](https://sarvajanikuniversity.ac.in/aboutus/)",
+        "",
+    ]
+    resources: list[dict] = [
+        {
+            "type": "page",
+            "url": "https://sarvajanikuniversity.ac.in/aboutus/",
+            "title": "Sarvajanik University — about / constituent colleges",
+            "score": 220,
+            "source": "curated_portal",
+            "is_portal": True,
+            "curated": True,
+        }
+    ]
+    sources: list[str] = ["https://sarvajanikuniversity.ac.in/aboutus/"]
+    seen_domains: set[str] = set()
+    n = 0
+    for site in SU_CONSTITUENT_SITES:
+        canonical = site["canonical"]
+        if canonical == SU:
+            continue
+        urls = list(site.get("urls") or [])
+        home = urls[0] if urls else f"https://www.{site['domains'][0]}/"
+        # Prefer college homepage over deep pages.
+        if canonical == SRKI:
+            home = "https://www.srki.ac.in/"
+        domain = site["domains"][0]
+        if domain in seen_domains and canonical in (SCTCC, SCLA):
+            # Still list them; they share SU domain.
+            pass
+        seen_domains.add(domain)
+        n += 1
+        short = {
+            SRKI: "SRKI",
+            SCET: "SCET",
+            SCOL: "SCOL",
+            BRCM: "BRCM",
+            SCCCA: "SCCCA",
+            SRLIM: "SRLIM",
+            SCOPA: "SCOPA",
+            IDPT: "IDPT",
+            SCTCC: "SCTCC",
+            SCLA: "SCLA",
+        }.get(canonical, "")
+        label = f"{n}. **{short}** — {canonical}" if short else f"{n}. **{canonical}**"
+        lines.append(f"{label}")
+        lines.append(f"   - Official site: [{domain}]({home})")
+        resources.append(
+            {
+                "type": "page",
+                "url": home,
+                "title": f"{short or canonical} — official website",
+                "score": 100 - n,
+                "source": "curated",
+                "curated": True,
+            }
+        )
+        sources.append(home)
+    lines.append("")
+    lines.append(
+        "For admissions across SU colleges, use the official admission portal: "
+        "[student.sarvajanikuniversity.ac.in](https://student.sarvajanikuniversity.ac.in:8080/admissionindex.html)"
+    )
+    sources.append("https://student.sarvajanikuniversity.ac.in:8080/admissionindex.html")
+    return "\n".join(lines), resources, list(dict.fromkeys(sources))

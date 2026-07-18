@@ -37,10 +37,12 @@ from backend.app.pipeline.institution_catalog import (
     PARENT_UNIVERSITY,
     SRKI,
     SU,
+    format_su_constituent_colleges_answer,
     get_asset_harvest_pages,
     get_constituent_primary_domain,
     get_crawl_seed_urls,
     get_parent_university,
+    is_constituent_list_query,
     is_gtu_network,
     is_srki_only,
     is_su_network,
@@ -58,6 +60,7 @@ from backend.app.pipeline.llm_client import LLMClient
 from backend.app.pipeline.official_links import (
     filter_resources_for_institution,
     filter_resources_for_query,
+    filter_sources_for_query,
     filter_urls_for_institution,
     get_curated_pdf_results,
     get_fee_portal_urls,
@@ -811,6 +814,7 @@ class EduOrchestrator:
             official = fee_urls + other_off
 
         sources = list(dict.fromkeys(official + others))
+        sources = filter_sources_for_query(sources, user_query or "", resources)
         return "\n\n---\n\n".join(blocks), sources, resources
 
     def chat(self, session_id: str, message: str) -> dict[str, Any]:
@@ -1074,6 +1078,31 @@ class EduOrchestrator:
             analysis["institution"] = institution
             self._boost_analysis_for_institution(analysis, text, institution)
 
+        # Curated accurate answer for SU constituent-college list queries.
+        if is_constituent_list_query(text) and (
+            institution == SU or is_su_network(institution) or resolve_bare_su(text) == SU
+        ):
+            reply, resources, sources = format_su_constituent_colleges_answer()
+            session.last_institution = SU
+            session.history.append({"role": "user", "content": text})
+            session.history.append({"role": "assistant", "content": reply})
+            intents = analysis.get("intents") or ["constituent_colleges"]
+            grounding = self._build_grounding_meta(SU, sources, resources, None)
+            return {
+                "reply": reply,
+                "intent": "constituent_colleges",
+                "intents": intents,
+                "is_multi_intent": False,
+                "role": analysis.get("user_role"),
+                "institution": SU,
+                "context": self._pragmatic_context(analysis, intents, SU),
+                "confidence": 1.0,
+                "sources": sources,
+                "resources": resources,
+                "grounding": grounding,
+                "source": "curated_su_constituents",
+            }
+
         is_institution_q = self._institution_query(text, institution, session)
         force_web = is_institution_q or self._needs_facts(text) or bool(institution)
         web_context, sources = "", []
@@ -1096,9 +1125,14 @@ class EduOrchestrator:
             high_accuracy=self._needs_high_accuracy(text, institution),
             institution=institution,
         )
+        # Remove internal grounding tags if the model echoes them.
+        reply = re.sub(r"\[OFFICIAL-[A-Z0-9_-]+\]", "", reply or "")
+        reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
         reply = self._ensure_links(reply, sources, institution, resources)
         reply = self._ensure_fee_answer(reply, resources, institution, text)
         reply = self._ensure_syllabus_answer(reply, resources, institution, text)
+        sources = filter_sources_for_query(sources or [], text, resources or [])
+        resources = filter_resources_for_query(resources or [], text)
 
         session.history.append({"role": "user", "content": text})
         session.history.append({"role": "assistant", "content": reply})
