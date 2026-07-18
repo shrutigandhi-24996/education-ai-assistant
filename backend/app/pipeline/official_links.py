@@ -626,27 +626,36 @@ def get_curated_pdf_results(institution: str, query: str = "") -> list[dict]:
     for url in pdfs:
         label = url.rsplit("/", 1)[-1]
         score = 20
-        if "sem1" in low or "sem 1" in low or "sem-1" in low:
-            if "sem1" in label.lower() or "sem-1" in label.lower() or "_1_" in label.lower():
-                score += 15
-            if "sem2" in label.lower() or "sem-2" in label.lower():
-                score -= 20
-        if "sem2" in low or "sem 2" in low or "sem-2" in low:
-            if "sem2" in label.lower() or "sem-2" in label.lower():
-                score += 15
-            if "sem1" in label.lower():
-                score -= 20
-        if "it" in low.split() and "it" in label.lower():
+        label_l = label.lower()
+        if "sem1" in low or "sem 1" in low or "sem-1" in low or "semester 1" in low or "semester-1" in low:
+            if "sem1" in label_l or "sem-1" in label_l or "sem_1" in label_l or "1-16" in label_l:
+                score += 40
+            if "sem2" in label_l or "sem-2" in label_l or "sem_2" in label_l or "17-29" in label_l:
+                score -= 40
+        if "sem2" in low or "sem 2" in low or "sem-2" in low or "semester 2" in low:
+            if "sem2" in label_l or "sem-2" in label_l or "sem_2" in label_l:
+                score += 40
+            if "sem1" in label_l or "sem-1" in label_l:
+                score -= 40
+        if "it" in low.split() or "information technology" in low:
+            if "_it_" in label_l or "bsc_it" in label_l or "it_202" in label_l or "b.sc%20it" in label_l:
+                score += 25
+            if "_cs_" in label_l and "_it_" not in label_l:
+                score -= 25
+        if "cs" in low.split() or "computer science" in low:
+            if "_cs_" in label_l or "bsccs" in label_l or "computer" in label_l:
+                score += 25
+            if "_it_" in label_l and "_cs_" not in label_l:
+                score -= 25
+        if "bca" in low and "bca" in label_l:
             score += 10
-        if "bca" in low and "bca" in label.lower():
-            score += 10
-        if "bsc" in low and "b.sc" in label.lower():
+        if "bsc" in low and ("b.sc" in label_l or "bsc" in label_l):
             score += 8
-        if "data science" in low and "data" in label.lower():
+        if "data science" in low and "data" in label_l:
             score += 8
-        if "2025-26" in label or "2025" in label:
+        if "2025-26" in label_l or "2025" in label_l:
             score += 6
-        if "2024-25" in label or "2024" in label:
+        if "2024-25" in label_l or "2024" in label_l:
             score += 5
         out.append(
             {
@@ -841,14 +850,31 @@ def filter_resources_for_query(resources: list[dict], query: str) -> list[dict]:
         def _pdf_rank(r: dict) -> tuple:
             b = _resource_topic_blob(r)
             score = r.get("score") or 0
+            if r.get("curated"):
+                score += 20
             if "it" in low.split() or "information technology" in low:
                 if "_it_" in b or "bsc_it" in b or "b.sc%20it" in b or "it_202" in b:
                     score += 50
-                if "_cs_" in b or "computer%20science" in b:
-                    score -= 30
+                if ("_cs_" in b or "bsccs" in b) and "_it_" not in b:
+                    score -= 40
             if "cs" in low.split() or "computer science" in low:
-                if "_cs_" in b or "computer" in b:
+                if "_cs_" in b or "bsccs" in b or ("computer" in b and "science" in b):
                     score += 50
+                if "_it_" in b and "_cs_" not in b:
+                    score -= 40
+            # Strong semester preference.
+            wants_sem1 = any(x in low for x in ("sem1", "sem 1", "sem-1", "semester 1", "semester-1"))
+            wants_sem2 = any(x in low for x in ("sem2", "sem 2", "sem-2", "semester 2", "semester-2"))
+            if wants_sem1:
+                if any(x in b for x in ("sem1", "sem-1", "sem_1", "1-16", "sem%201")):
+                    score += 60
+                if any(x in b for x in ("sem2", "sem-2", "sem_2", "17-29", "semester-ii", "semester ii")):
+                    score -= 80
+            if wants_sem2:
+                if any(x in b for x in ("sem2", "sem-2", "sem_2", "17-29")):
+                    score += 60
+                if any(x in b for x in ("sem1", "sem-1", "sem_1", "1-16")):
+                    score -= 80
             return (-score,)
 
         pdfs.sort(key=_pdf_rank)
