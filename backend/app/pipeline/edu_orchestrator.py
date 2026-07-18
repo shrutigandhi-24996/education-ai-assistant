@@ -83,6 +83,11 @@ from backend.app.pipeline.page_assets import _asset_type, harvest_official_asset
 from backend.app.pipeline.pdf_reader import enrich_pdf_resources, format_pdf_context_blocks
 from backend.app.pipeline.preprocessing import preprocess
 from backend.app.pipeline.site_navigator import crawl_official_site, is_syllabus_query
+from backend.app.pipeline.srki_syllabus_nav import (
+    expand_course_short_names,
+    format_course_resolution_note,
+    navigate_srki_syllabus,
+)
 from backend.app.pipeline.web_search import (
     fetch_page_extract,
     find_official_urls_for_institution,
@@ -524,6 +529,18 @@ class EduOrchestrator:
             return reply
         pdfs = [r for r in (resources or []) if r.get("type") == "pdf"]
         pdfs = [r for r in pdfs if not is_junk_pdf(r.get("title", ""), r.get("url", ""))]
+        # Strip apologetic "WEB CONTEXT does not contain…" filler when we already have PDFs.
+        reply = re.sub(
+            r"(?is)\s*(?:unfortunately[, ]+)?(?:the\s+)?(?:provided\s+)?web\s+context\s+does\s+not\s+contain[^.]*\.\s*"
+            r"(?:however[^.]*\.\s*)?",
+            "\n",
+            reply or "",
+        )
+        reply = re.sub(
+            r"(?is)\s*i\s+can\s+guide\s+you\s+on\s+how\s+to\s+find\s+the\s+syllabus[^.]*\.\s*",
+            "\n",
+            reply,
+        )
         low_reply = (reply or "").lower()
         unavailable = any(
             p in low_reply
@@ -659,9 +676,44 @@ class EduOrchestrator:
                 blocks.append(f"[{tag}] {r.get('title') or url}\nSource: {url}")
             (official if tag == "OFFICIAL" else others).append(url)
 
+        # Expand course short names (ES→Environmental Science) for matching + LLM grounding.
+        nav_query = expand_course_short_names(user_query or "")
+        course_note = format_course_resolution_note(user_query or "")
+        if course_note:
+            blocks.append(f"[OFFICIAL-COURSE-MAP] {course_note}")
+
+        # SRKI Academic → SU Syllabus → UG/PG/PhD official menu flow (deep crawl).
+        if institution == SRKI and is_syllabus_query(user_query or ""):
+            nav_resources, nav_portals = navigate_srki_syllabus(user_query or "")
+            for r in nav_resources:
+                url = r.get("url")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                resources.append(r)
+                rtype = r.get("type", "page")
+                if rtype == "pdf":
+                    blocks.append(
+                        f"[OFFICIAL-PDF] {r.get('title') or url}\n"
+                        f"Type: PDF | Found via official Academic → SU Syllabus → "
+                        f"{'UG' if 'under-graduate' in (r.get('page') or url) else 'PG/PhD'} menu\n"
+                        f"Direct link: {url}"
+                    )
+                    official.append(url)
+                else:
+                    blocks.append(
+                        f"[OFFICIAL-SYLLABUS-PORTAL] {r.get('title') or url}\n"
+                        f"Official SRKI syllabus navigation page.\n"
+                        f"Direct link: {url}"
+                    )
+                    official.insert(0, url)
+            for u in nav_portals:
+                if u not in official:
+                    official.insert(0, u)
+
         # Curated official links first (works even when DuckDuckGo is blocked on cloud hosts).
         if institution:
-            for r in get_portal_page_resources(institution, user_query or ""):
+            for r in get_portal_page_resources(institution, nav_query or user_query or ""):
                 url = r.get("url")
                 if not url or url in seen:
                     continue
@@ -677,16 +729,19 @@ class EduOrchestrator:
                 official.insert(0, url)
             for r in get_official_search_results(institution, user_query or institution):
                 _add_result(r)
-            for r in get_curated_pdf_results(institution, user_query or ""):
-                if r.get("url") and not is_junk_pdf(r.get("title", ""), r["url"]):
-                    resources.append(r)
-                    blocks.append(
-                        f"[OFFICIAL-PDF] {r.get('title') or r['url']}\n"
-                        f"Type: PDF | Curated official syllabus document\n"
-                        f"Direct link: {r['url']}"
-                    )
-                    official.append(r["url"])
-                    seen.add(r["url"])
+            # Prefer PDFs found via Academic → SU Syllabus menu; only add curated if none yet.
+            has_nav_pdfs = any(r.get("source") == "srki_syllabus_nav" and r.get("type") == "pdf" for r in resources)
+            if not has_nav_pdfs:
+                for r in get_curated_pdf_results(institution, user_query or ""):
+                    if r.get("url") and r["url"] not in seen and not is_junk_pdf(r.get("title", ""), r["url"]):
+                        resources.append(r)
+                        blocks.append(
+                            f"[OFFICIAL-PDF] {r.get('title') or r['url']}\n"
+                            f"Type: PDF | Curated official syllabus document\n"
+                            f"Direct link: {r['url']}"
+                        )
+                        official.append(r["url"])
+                        seen.add(r["url"])
 
         # Parallel web search (2 queries max in fast mode).
         for r in search_many_parallel(queries):
@@ -731,16 +786,27 @@ class EduOrchestrator:
                 else:
                     seed_pages = list(dict.fromkeys(seeds))[:4]
             elif is_syllabus_query(user_query or "") and institution == SRKI:
-                # Syllabus PDFs live on department pages — harvest those first.
-                dept = get_srki_department_urls_for_query(user_query or "")
+                # Follow Academic → SU Syllabus → UG/PG pages, then department pages.
+                from backend.app.pipeline.srki_syllabus_nav import (
+                    _UG,
+                    _PG,
+                    _PHD,
+                    _SU_SYLLABUS,
+                    detect_level_from_query,
+                )
+
+                level = detect_level_from_query(user_query or "")
+                level_url = {"ug": _UG, "pg": _PG, "phd": _PHD}.get(level, _UG)
+                dept = get_srki_department_urls_for_query(nav_query or user_query or "")
                 seeds = (
-                    dept
+                    [_SU_SYLLABUS, level_url]
+                    + dept
                     + get_syllabus_portal_urls(institution, user_query)
                     + get_official_urls(institution, user_query)
                     + official
-                    + get_crawl_seed_urls(institution, [], user_query)
+                    + get_crawl_seed_urls(institution, [], nav_query or user_query)
                 )
-                seed_pages = list(dict.fromkeys(seeds))[:6]
+                seed_pages = list(dict.fromkeys(seeds))[:8]
             else:
                 seed_pages = list(
                     dict.fromkeys(

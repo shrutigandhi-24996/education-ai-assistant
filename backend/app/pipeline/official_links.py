@@ -116,6 +116,18 @@ INSTITUTION_OFFICIAL_LINKS: dict[str, dict[str, list[str]]] = {
             "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20BT%20COMPLETE.pdf",
             "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20CHE%20COMPLETE.pdf",
             "https://www.srki.ac.in/upload/2023-24/syllabus/NEP%202024%20ES%20COMPLETE.pdf",
+            # B.Sc. Environmental Science — from official UG syllabus page tabs
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-1-18.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-19-26.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-27-35.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-36-45.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-46-55.pdf",
+            "https://www.srki.ac.in/upload/2025-26/Es-syll-2122/Curriculum-ENVIRONMENTAL%20SCIENCE%20(B-Sc-ES%20)%202021-22-56-67.pdf",
+            "https://www.srki.ac.in/upload/2025-26/B-Sc-ES%20(Hons-)%20Sem-3_Major.pdf",
+            "https://www.srki.ac.in/upload/2025-26/B-Sc-BT-CH-ES-MB%20(Hons-)%20Sem-5_6.pdf",
+            "https://www.srki.ac.in/upload/2021-22/b.sc.%20biotechnology%20sem-1.pdf",
+            "https://www.srki.ac.in/upload/2025-26/M-Sc%20ES_Sem1.pdf",
+            "https://www.srki.ac.in/upload/2025-26/M-Sc%20ES_Sem2.pdf",
             # Computer Science / IT / AIDS
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_CS_Sem1_Syllabus_CS_2024-25-1-16.pdf",
             "https://www.srki.ac.in/upload/2024-25/NEP_BSc_IT_Sem1_Syllabus_IT_2024-25.pdf",
@@ -356,6 +368,24 @@ def get_syllabus_portal_urls(institution: str, query: str = "") -> list[str]:
     portals = list(catalog.get("syllabus_portal") or [])
     if not portals and "syllabus" in _topics_for_query(query):
         portals = [u for u in catalog.get("syllabus", []) if "syllabus" in u.lower()]
+    # SRKI official menu: Academic → SU Syllabus → UG / PG / PhD.
+    if institution == SRKI:
+        from backend.app.pipeline.srki_syllabus_nav import (
+            PG_SYLLABUS_PAGE,
+            PHD_SYLLABUS_PAGE,
+            SU_SYLLABUS_HUB,
+            UG_SYLLABUS_PAGE,
+            detect_level_from_query,
+        )
+
+        level = detect_level_from_query(query)
+        portals = [SU_SYLLABUS_HUB] + portals
+        if level == "pg":
+            portals.insert(1, PG_SYLLABUS_PAGE)
+        elif level == "phd":
+            portals.insert(1, PHD_SYLLABUS_PAGE)
+        else:
+            portals.insert(1, UG_SYLLABUS_PAGE)
     seen: set[str] = set()
     out: list[str] = []
     for u in portals:
@@ -770,7 +800,11 @@ def _score_syllabus_pdf(query_low: str, label: str, url: str = "") -> int:
         (("microbiology", " mb ", " mb%", "/mb%", "b.sc. mb", "b sc mb"), ("mb", "microbiology", "bt-ch-mb"), 55),
         (("biotechnology", " biotech", " bt ", "b.sc. bt", "b sc bt"), ("bt", "biotech", "biotechnology", "bt-ch-mb"), 55),
         (("chemistry", " che ", "organic chemistry"), ("che", "chemistry", "organic", "bt-ch-mb", "ch-mb"), 55),
-        (("environmental", " env ", " es "), (" es ", "es_", "environmental", "env"), 55),
+        (
+            ("environmental", " env ", " es ", "bsc es", "b.sc es", "b.sc. es"),
+            ("es-syll", "b-sc-es", "b.sc-es", "environmental science", "environmental", "m-sc es", "m-sc%20es"),
+            55,
+        ),
         (("information technology", " bsc it", "b.sc it", " bsc_it"), ("_it_", "bsc_it", "it_202", "b.sc it", "b.sc%20it", "msc_it"), 55),
         (("computer science", " bsc cs", "b.sc cs", "computer"), ("_cs_", "bsccs", "cs-sem", "computer", "bsc_cs"), 55),
         (("aids", "artificial intelligence", "data science"), ("aids", "data", "ai"), 55),

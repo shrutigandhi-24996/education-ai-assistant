@@ -115,6 +115,9 @@ _SU_REGION_HINTS = (
 SRKI_OFFICIAL_SEEDS: tuple[str, ...] = (
     "https://www.srki.ac.in/",
     "https://www.srki.ac.in/pages/su-syllabus/",
+    "https://www.srki.ac.in/pages/under-graduate-courses/",
+    "https://www.srki.ac.in/pages/post-graduate-courses/",
+    "https://www.srki.ac.in/pages/phd-coursework-paper-iii-amp-iv-/",
     "https://www.srki.ac.in/pages/admission-corner/",
     "https://www.srki.ac.in/pages/courses-offered/",
     "https://www.srki.ac.in/pages/srki-constituent-college-of-sarvajanik-university-/",

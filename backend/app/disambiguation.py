@@ -14,6 +14,23 @@ DISAMBIGUATION_MAP: dict[str, list[dict[str, str]]] = {
     "bt": [{"resolution": "Biotechnology", "label": "Biotechnology"}],
     "mb": [{"resolution": "Microbiology", "label": "Microbiology"}],
     "it": [{"resolution": "Information Technology", "label": "Information Technology"}],
+    "es": [{"resolution": "Environmental Science", "label": "Environmental Science (BSc/MSc ES)"}],
+    "ch": [{"resolution": "Chemistry", "label": "Chemistry"}],
+    "che": [{"resolution": "Chemistry", "label": "Chemistry"}],
+    "aids": [{"resolution": "AIDS", "label": "Artificial Intelligence & Data Science (AIDS)"}],
+    "mct": [{"resolution": "MCT", "label": "Mobile and Cloud Technology (MCT)"}],
+}
+
+# Unambiguous course short-names — auto-resolve (never ask the user).
+_AUTO_COURSE_ALIASES = {
+    "es": "Environmental Science",
+    "bt": "Biotechnology",
+    "mb": "Microbiology",
+    "it": "Information Technology",
+    "ch": "Chemistry",
+    "che": "Chemistry",
+    "aids": "AIDS",
+    "mct": "MCT",
 }
 
 # Patterns where "CS" clearly means Computer Science (degree/program), not Communication Skills.
@@ -40,6 +57,10 @@ def reconcile_resolutions(query: str, resolved: dict[str, str]) -> None:
     # Degree-style "BSc CS" always means Computer Science.
     if _cs_means_computer_science(query):
         resolved["cs"] = "Computer Science"
+    # Auto-map unambiguous course shorts (ES, BT, MB, …).
+    for short, full in _AUTO_COURSE_ALIASES.items():
+        if re.search(rf"(?<![a-z0-9]){re.escape(short)}(?![a-z0-9])", lower):
+            resolved[short] = full
     for term, options in DISAMBIGUATION_MAP.items():
         if term not in resolved or len(options) <= 1:
             continue
@@ -65,8 +86,13 @@ def find_ambiguous_terms(query: str, resolved: dict[str, str]) -> dict[str, list
     # Auto-resolve CS → Computer Science for BSc CS / syllabus / semester queries.
     if "cs" not in resolved and _cs_means_computer_science(query):
         resolved["cs"] = "Computer Science"
+    for short, full in _AUTO_COURSE_ALIASES.items():
+        if re.search(rf"(?<![a-z0-9]){re.escape(short)}(?![a-z0-9])", lower):
+            resolved[short] = full
     for term, options in DISAMBIGUATION_MAP.items():
         if term in resolved:
+            continue
+        if term in _AUTO_COURSE_ALIASES:
             continue
         pattern = rf"\b{re.escape(term)}\b"
         if re.search(pattern, lower) and len(options) > 1:
