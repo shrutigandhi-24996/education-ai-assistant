@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     edu_site_nav_max_pages: int = 14
     edu_site_nav_max_depth: int = 5
     edu_official_page_extracts: int = 2
+    # Restrict answers to SRKI only (Phase 1). Other institutions get a polite scope reply.
+    edu_focus_srki_only: bool = True
+    # Show suggested question chips in the chat UI.
+    ui_show_suggestions: bool = False
 
     # --- Conversation logging (live database) ---
     conversation_logging_enabled: bool = True

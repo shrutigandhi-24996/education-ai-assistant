@@ -152,14 +152,44 @@ _OFFICIAL_DOMAIN = re.compile(
 )
 
 OFF_TOPIC_REPLY = (
-    "I'm the **Innovative Educational Chatbot** — I focus on education topics: admissions, "
-    "colleges & universities, schools, courses, scholarships, exams, departments, faculty, "
-    "fees, results, and career guidance.\n\n"
-    "Your question seems outside this domain. Please ask me something related to education "
-    "and I'll search official sources to help you."
+    "I'm the **SRKI Educational Chatbot** — I answer education-related questions about "
+    "**Shree Ramkrishna Institute of Computer Education and Applied Sciences (SRKI), Surat**: "
+    "admissions, courses, syllabus, fees, departments, exams, contact details, and campus information.\n\n"
+    "Your question seems outside the education domain, so I can't help with it.\n\n"
+    "Please ask me something about SRKI — for example admissions, fees structure, "
+    "BSc/MSc courses, syllabus, or contact details — and I'll answer from official sources."
 )
 
-GREETING_REPLY = """Hello! Welcome to the **Innovative Educational Chatbot**.
+SRKI_SCOPE_REPLY = (
+    "Right now I answer questions about **Shree Ramkrishna Institute of Computer Education and "
+    "Applied Sciences (SRKI), Surat** only.\n\n"
+    "I can help you with SRKI's:\n"
+    "- Admissions & eligibility\n"
+    "- Courses (BSc/MSc — Computer Science, IT, Microbiology, Biotechnology, Chemistry & more)\n"
+    "- Syllabus (semester-wise official PDFs)\n"
+    "- Fees structure & payment\n"
+    "- Departments, exams, results & contact details\n\n"
+    "Official website: [srki.ac.in](https://www.srki.ac.in/)\n\n"
+    "Please ask your question about **SRKI** and I'll answer from official sources."
+)
+
+GREETING_REPLY = """Hello! Welcome to the **SRKI Educational Chatbot**.
+
+I answer questions about **Shree Ramkrishna Institute of Computer Education and Applied Sciences (SRKI), Surat** — a constituent college of Sarvajanik University.
+
+I can help you with:
+
+- **Admissions** — process, eligibility, application forms
+- **Courses** — BSc/MSc in Computer Science, IT, Microbiology, Biotechnology, Chemistry & more
+- **Syllabus** — official semester-wise syllabus PDFs
+- **Fees** — programme-wise fees structure & payment
+- **Departments, exams, results & contact details**
+
+All answers come from SRKI's official website with verified links and documents.
+
+What would you like to know about SRKI?"""
+
+GREETING_REPLY_GENERAL = """Hello! Welcome to the **Innovative Educational Chatbot**.
 
 I'm here to help students, parents, and educators with:
 
@@ -252,6 +282,9 @@ class EduOrchestrator:
         session: EduSession,
     ) -> bool:
         """User wants institution-specific facts but did not name which one."""
+        # SRKI-only mode: default institution is always SRKI, never ask.
+        if settings.edu_focus_srki_only:
+            return False
         if institution or session.last_institution:
             return False
         if detect_institution(text, session.resolved_entities):
@@ -825,10 +858,11 @@ class EduOrchestrator:
         text = preprocess(message)
 
         if self._is_greeting(text):
+            greeting = GREETING_REPLY if settings.edu_focus_srki_only else GREETING_REPLY_GENERAL
             session.history.append({"role": "user", "content": text})
-            session.history.append({"role": "assistant", "content": GREETING_REPLY})
+            session.history.append({"role": "assistant", "content": greeting})
             return {
-                "reply": GREETING_REPLY,
+                "reply": greeting,
                 "intent": "general_greeting",
                 "intents": ["general_greeting"],
                 "is_multi_intent": False,
@@ -944,7 +978,7 @@ class EduOrchestrator:
             text = expand_institution_aliases(text, session.resolved_entities)
 
         # --- Unknown short name: search the web to identify the institution ---
-        if not detect_institution(text, session.resolved_entities):
+        if not settings.edu_focus_srki_only and not detect_institution(text, session.resolved_entities):
             unknown_tokens = find_unknown_institution_tokens(text, session.resolved_entities)
             if unknown_tokens:
                 token = unknown_tokens[0]
@@ -972,7 +1006,9 @@ class EduOrchestrator:
                     }
 
         # --- Detect ambiguous abbreviations (homographs) ---
-        inst_ambiguous = find_ambiguous_institutions(text, session.resolved_entities)
+        inst_ambiguous = {} if settings.edu_focus_srki_only else find_ambiguous_institutions(
+            text, session.resolved_entities
+        )
         for term in list(inst_ambiguous.keys()):
             from_hist = resolve_from_history(
                 term, session.history, session.resolved_entities, session.last_institution
@@ -1029,6 +1065,27 @@ class EduOrchestrator:
         institution = self._resolve_institution_for_query(
             text, session, analysis, known_institution
         )
+
+        # SRKI-only mode: answer SRKI queries; politely scope-limit other institutions.
+        if settings.edu_focus_srki_only:
+            low = text.lower()
+            mentions_srki = bool(re.search(r"\bsrki\b|\bramkrishna\b", low))
+            if mentions_srki or not institution:
+                institution = SRKI
+                clarification = None
+            elif institution != SRKI:
+                session.last_institution = SRKI
+                session.history.append({"role": "user", "content": text})
+                session.history.append({"role": "assistant", "content": SRKI_SCOPE_REPLY})
+                return {
+                    "reply": SRKI_SCOPE_REPLY,
+                    "intent": "out_of_scope_institution",
+                    "intents": ["out_of_scope_institution"],
+                    "is_multi_intent": False,
+                    "role": analysis.get("user_role"),
+                    "context": {"Topic": ["srki_scope_limit"], "RequestedInstitution": [institution]},
+                    "source": "scope_guard",
+                }
 
         if self._needs_named_institution(text, analysis, institution, session):
             reply = self._format_missing_institution_prompt(text, analysis)

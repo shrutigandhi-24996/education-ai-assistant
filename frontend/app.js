@@ -455,6 +455,9 @@ function ensureUserEmail() {
   });
 }
 
+// Suggested question chips are hidden for now (set to true to bring them back).
+const SHOW_SUGGESTIONS = false;
+
 const SUGGESTIONS = [
   "SRKI BSc IT sem-1 syllabus",
   "SU Sarvajanik University constituent colleges",
@@ -1045,6 +1048,10 @@ function addTyping() {
 }
 
 function renderSuggestions() {
+  if (!SHOW_SUGGESTIONS) {
+    suggestionsEl.style.display = "none";
+    return;
+  }
   SUGGESTIONS.forEach((q) => {
     const b = document.createElement("button");
     b.type = "button";
